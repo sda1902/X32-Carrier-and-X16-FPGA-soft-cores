@@ -1,0 +1,62 @@
+define RemainedMemPSOLocation=4
+define CurrentObjCountPSOLocation=8
+define ExportTableOffset_PSO_position=12
+define ExportTableCount_PSO_position=16
+define ImportTableOffset_PSO_position=20
+define ImportTableCount_PSO_position=24
+define SystemQueueOffset_PSO_position=28
+define SystemQueueLength_PSO_position=32
+define SystemQueuePointers_PSO_position=36
+define RegularQueueOffset_PSO_position=40
+define RegularQueueLength_PSO_position=44
+define RegularQueuePointers_PSO_position=48
+define ContextStackOffset_PSO_position=52
+define ContextStackLimit_PSO_position=56
+define ContextStackPointer_PSO_position=60
+
+; control registers
+define	DTR_offset=0
+define	MPCR_offset=08h
+define	CSR_offset=10h
+define	CPSR_offset=14h
+define	PLR_offset=18h
+define	TFMR_offset=20h
+define	CFMR_offset=28h
+define	INTCR_offset=30h
+define	ESR_offset=38h
+define	PTR_offset=40h
+define	CPR_offset=44h
+define	DMACTL_offset=48h
+define	DMARX_offset=50h
+define	DMATX_offset=58h
+define 	PMCR_Offset=78h
+
+; process object locations
+define	process_PSO_offset=48h
+define	process_ECnt_offset=70h
+
+; IO Registers
+define	UART_Offset=08h
+define	SysTimer_offset=10h
+
+; Predefined selectors
+define CodeSelector=1
+define IOSelector=2
+define SysSelector=3
+define SDRAMSelector=4
+define StackSelector=5
+define FirstFreeSelector=6
+define SecondFreeSelector=7
+define PSOSelector=8
+define INTSelector=9
+define ProcTableSelector=10
+define DTSelector=11
+define ServiceSelector=12
+define SEPSelector=13
+define BKPTSelector=14
+define ErrorSelector=15
+define FlashCtrlSelector=16
+define FlashDataSelector=17
+define FlashWBSelector=18
+define CommandStreamSelector=19
+define EchoStreamSelector=20

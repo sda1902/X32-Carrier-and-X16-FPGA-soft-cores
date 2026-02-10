@@ -1,0 +1,323 @@
+iset CoreOne
+
+; instructions
+instructions CoreSet (size=16, position=0, aligncode=0FFF0h)
+	FADD dst,src1:src2			= 08h		;2 0Fh
+	FSUB dst,src1:src2			= 09h		;2 0Fh
+	FMUL dst,src1:src2			= 0Ah		;2 0Fh
+	FDIV dst,src1:src2			= 0Bh		;2 0Fh
+	SQRT dst,src2				= 7Ch		;2 0FFh
+
+	ADD dst,src1:src2			= 03h		;2 0Fh
+	AND dst,src1:src2			= 06h		;2 0Fh
+	OR dst,src1:src2			= 07h		;2 0Fh
+	XOR dst,src1:src2			= 0Eh		;2 0Fh
+	
+	LSLI dst:ShiftParameter		= 00h		;2 0FFh
+	LSL dst:src2				= 80h		;2 0FFh
+	LSRI dst:ShiftParameter		= 10h		;2 0FFh
+	LSR dst:src2				= 90h		;2 0FFh
+	CSLI dst:ShiftParameter		= 20h		;2 0FFh
+	CSL dst:src2				= 0A0h		;2 0FFh
+	CSRI dst:ShiftParameter		= 30h		;2 0FFh
+	CSR dst:src2				= 0B0h		;2 0FFh
+	ASRI dst:ShiftParameter		= 50h		;2 0FFh
+	ASR dst:src2				= 0D0h		;2 0FFh
+	
+	BSWAP dst					= 2F0h		;2 0FFFh
+	NEG dst						= 3F0h		;2 0FFFh
+	DAA dst						= 4F0h		;2 0FFFh
+	DAS dst						= 5F0h		;2 0FFFh
+	POS dst,src2				= 0C0h		;2 0FFh
+	SIZE dst,OpSize				= 0E0h		;2 01FFh
+	AMODE dst,Amode				= 1E0h		;2 01FFh
+	
+	COPY dst,src2				= 40h		;2 0FFh
+	LAR adst,src2				= 60h		;2 0FFh
+	SAR dst,asrc				= 70h		;2 0FFh
+	LDB dst,mar:src2			= 05h		;2 1Fh
+	LDW dst,mar:src2			= 0Dh		;2 1Fh
+	LDD dst,mar:src2			= 15h		;2 1Fh
+	LDQ dst,mar:src2			= 1Dh		;2 1Fh
+	LDO dst,mar:src2			= 14h		;2 1Fh
+	ST mar:src2,dst				= 04h		;2 1Fh
+	CFZ dst,src2				= 1Ch		;2 0FFh
+	CFN	dst,src2				= 3Ch		;2 0FFh
+	LI dst,DataByte				= 0Fh		;2 0Fh
+	PUSHD dst					= 0F0h		;2 0FFFh
+	PUSHA adst					= 8F0h		;2 0FFFh
+	POPD dst					= 1F0h		;2 0FFFh
+	POPA adst					= 9F0h		;2 0FFFh
+	
+	JC src1:CCode,ShortDisp		= 02h		;2 0Fh ShortDisp,d
+	JNEAR JumpDisp				= 5Ch		;2 07Fh JumpDisp,d
+	LOOP dst,DataByte			= 01h		;2 0Fh DataByte,d
+	JUMP dst					= 0BF0h		;2 0FFFh dst,r
+	CALL dst					= 0CF0h		;2 0FFFh dst,r
+	SENDMSG dst					= 0AF0h		;2 0FFFh
+	MEMALLOC dst				= 6F0h		;2 0FFFh
+	GETPAR dst					= 7F0h		;2 0FFFh
+	RET							= 0FF0h		;2 0FFFFh S
+	ENDMSG						= 1FF0h		;2 0FFFFh
+	BKPT						= 2FF0h		;2 0FFFFh
+	SLEEP						= 3FF0h		;2 0FFFFh
+	NOP							= 0FFF0h	;2 0FFFFh
+	
+	FIELDCOPYI dst,src2:FCpar1:FCpar2	= 00FCh 4		;4 0F00FFh
+	FIELDCOPY dst,src2:src3:src4		= 100FCh 4		;4 0F00FFh
+	MASKCOPY dst,src2:src3:src4			= 200FCh 4		;4 0F00FFh
+	FMULACC dst,ctrlmar:src3,datamar:src4 = 300FCh 4	;4 0F00FFh
+	FFT dst,ctrlmar:src3,datamar:src4 = 700FCh 4		;4 0F00FFh
+	AILLM dst,src3						= 800FCh 4		;4 0F00FFh
+	AILLC dst,src3						= 900FCh 4		;4 0F00FFh
+	AILDL dst,src3,src4					= 0A00FCh 4		;4 0F00FFh
+	AISDL dst,src3,src4					= 0B00FCh 4		;4 0F00FFh
+	AILE dst,src3						= 0C00FCh 4		;4 0F00FFh
+	AIBP dst,src3						= 0D00FCh 4		;4 0F00FFh
+	AIFP dst,src3,src4					= 0E00FCh 4		;4 0F00FFh
+	AIRS dst							= 0F00FCh 4		;4 0F00FFh
+	
+	JCL src1:CCode,LongDisp		= 1002h 4				;4 0F00Fh
+endof CoreSet
+
+; control selector register field 
+Field ctrlmar (size=3, position=8)
+	MAR0	= 0
+	MAR1	= 1
+	MAR2	= 2
+	MAR3	= 3
+	MAR4	= 4
+	MAR5	= 5
+	MAR6	= 6
+	MAR7	= 7
+Endof ctrlmar
+
+; data selector for FMULACC instruction
+Field datamar (size=3, position=28)
+	MAR0	= 0
+	MAR1	= 1
+	MAR2	= 2
+	MAR3	= 3
+	MAR4	= 4
+	MAR5	= 5
+	MAR6	= 6
+	MAR7	= 7
+Endof datamar
+
+; field for start bit
+Field FCpar1 (size=6, position=20)
+Endof FCpar1
+
+; field number of bits
+Field FCpar2 (size=6, position=26)
+Endof FCpar2
+
+; Field for displacement in short jump operation
+Field JumpDisp (size=9, position=7)
+Endof JumpDisp
+
+; Short displacement field
+Field ShortDisp (size=4, position=12)
+EndOf ShortDisp
+
+; Long displacement field
+Field LongDisp (size=16, position=16)
+EndOf LongDisp
+
+; condition code field
+Field CCode (size=4, position=8)
+	ZF		= 0
+	CF		= 1
+	SF		= 2
+	OF		= 3
+	IF		= 4
+	NF		= 5
+	DBF		= 6
+	NZF		= 8
+	NCF		= 9
+	NSF		= 0Ah
+	NOF		= 0Bh
+	NIF		= 0Ch
+	NNF		= 0Dh
+	NDBF	= 0Eh
+Endof CCode
+
+; byte data field
+Field DataByte (size=8, position=4)
+EndOf DataByte
+
+; field address register pair
+Field mar (size=3, position=5)
+	MAR0	= 0
+	MAR1	= 1
+	MAR2	= 2
+	MAR3	= 3
+	MAR4	= 4
+	MAR5	= 5
+	MAR6	= 6
+	MAR7	= 7
+Endof mar
+
+
+; field DST
+Field dst (size=4, position=12)
+	R0	= 0
+	R1	= 1
+	R2	= 2
+	R3	= 3
+	R4	= 4
+	R5	= 5
+	R6	= 6
+	R7	= 7
+	R8	= 8
+	R9	= 9
+	R10	= 10
+	R11	= 11
+	R12	= 12
+	R13	= 13
+	R14	= 14
+	R15	= 15
+Endof dst
+
+; field SRC2
+Field src2 (size=4, position=8)
+	R0	= 0
+	R1	= 1
+	R2	= 2
+	R3	= 3
+	R4	= 4
+	R5	= 5
+	R6	= 6
+	R7	= 7
+	R8	= 8
+	R9	= 9
+	R10	= 10
+	R11	= 11
+	R12	= 12
+	R13	= 13
+	R14	= 14
+	R15	= 15
+Endof src2
+
+; field SRC3
+Field src3 (size=4, position=20)
+	R0	= 0
+	R1	= 1
+	R2	= 2
+	R3	= 3
+	R4	= 4
+	R5	= 5
+	R6	= 6
+	R7	= 7
+	R8	= 8
+	R9	= 9
+	R10	= 10
+	R11	= 11
+	R12	= 12
+	R13	= 13
+	R14	= 14
+	R15	= 15
+Endof src3
+
+; field SRC4
+Field src4 (size=4, position=24)
+	R0	= 0
+	R1	= 1
+	R2	= 2
+	R3	= 3
+	R4	= 4
+	R5	= 5
+	R6	= 6
+	R7	= 7
+	R8	= 8
+	R9	= 9
+	R10	= 10
+	R11	= 11
+	R12	= 12
+	R13	= 13
+	R14	= 14
+	R15	= 15
+Endof src4
+
+; field SRC1
+Field src1 (size=4, position=4)
+	R0	= 0
+	R1	= 1
+	R2	= 2
+	R3	= 3
+	R4	= 4
+	R5	= 5
+	R6	= 6
+	R7	= 7
+	R8	= 8
+	R9	= 9
+	R10	= 10
+	R11	= 11
+	R12	= 12
+	R13	= 13
+	R14	= 14
+	R15	= 15
+Endof src1
+
+; Immediate parameter for shift operations
+Field ShiftParameter (size=4, position=8)
+Endof ShiftParameter
+
+; op size field
+Field OpSize (size=3, position=9)
+	BYTE		= 0
+	WORD		= 1
+	DWORD		= 2
+	QWORD		= 3
+	OWORD		= 4
+	Single		= 2
+	Double		= 3
+	Quadruple	= 4
+	NAN			= 7
+Endof OpSize
+
+; Field address mode
+Field Amode (size=3, position=9)
+EndOf Amode
+
+; address register field
+Field adst (size=4, position=12)
+	AR0		= 0
+	AR1		= 1
+	AR2		= 2
+	AR3		= 3
+	AR4		= 4
+	AR5		= 5
+	AR6		= 6
+	AR7		= 7
+	AR8		= 8
+	AR9		= 9
+	AR10	= 10
+	AR11	= 11
+	AR12	= 12
+	AR13	= 13
+	AR14	= 14
+	AR15	= 15
+Endof adst
+
+; address register field
+Field asrc (size=4, position=8)
+	AR0		= 0
+	AR1		= 1
+	AR2		= 2
+	AR3		= 3
+	AR4		= 4
+	AR5		= 5
+	AR6		= 6
+	AR7		= 7
+	AR8		= 8
+	AR9		= 9
+	AR10	= 10
+	AR11	= 11
+	AR12	= 12
+	AR13	= 13
+	AR14	= 14
+	AR15	= 15
+Endof asrc
+
+endof CoreOne
