@@ -1,0 +1,654 @@
+module MUX64DT (
+	input CLK, RESETn,
+
+	output wire [4:0]	LNEXT,
+	input wire [4:0]	LACT,
+	input wire [4:0]	LCMD,
+	input wire [1:0] LSIZEO [4:0],
+	input wire [44:0] LADDR [4:0],
+	input wire [63:0] LDATO [4:0],
+	input wire [12:0] LTAGO [4:0],
+	output reg [4:0] LDRDY,
+	output reg [63:0] LDATI,
+	output reg [12:0] LTAGI,
+	output reg [2:0] LSIZEI,
+
+	output reg CMD,
+	output reg [44:0] ADDR,
+	output wire [63:0] DATA,
+	output reg [7:0] BE,
+	output reg [20:0] TAG,
+	
+	input wire FLNEXT,
+	output reg FLACT,
+	input wire FLDRDY,
+	input wire [63:0] FLDAT,
+	input wire [20:0] FLTAG,
+	
+	input SDNEXT,
+	output reg SDACT,
+	input SDDRDY,
+	input [63:0] SDDAT,
+	input [20:0] SDTAG,
+	
+	input IONEXT,
+	output reg IOACT,
+	input IODRDY,
+	input [63:0] IODAT,
+	input [20:0] IOTAG,
+	// control and status lines
+	output reg [39:0] DTBASE,
+	output reg [23:0] DTLIMIT, INTSEL,
+	output reg [15:0] INTLIMIT,
+	output reg [7:0] CPUNUM,
+	output reg [3:0] NENA,
+	output reg INTRST, INTENA, ESRRD, CENA, MALOCKF,
+	output reg [1:0] PTINTR, CPINTR,
+	input wire [3:0] NLE, NERR,
+	input wire [31:0] CSR [1:0],
+	input wire [23:0] CPSR [1:0],
+	input wire [39:0] FREEMEM, CACHEDMEM,
+	input wire [63:0] ESR,
+	output wire [2:0] CPSRSTB [1:0],
+	output wire [3:0] CSRSTB [1:0],
+	input wire SINIT,
+	input wire NINIT,
+	input wire CINIT,
+	input wire TCK,
+	input wire [1:0] TCKOVR,
+	input wire [1:0] HALT,
+	// performance data source
+	input wire [3:0] IV [1:0],
+	input wire [23:0] CSEL [1:0],
+	input wire [1:0] EMPTY,
+	input wire [7:0] TCKScaler,
+	input wire [7:0] CoreType
+	);
+
+reg InACTReg, SysACTFlag, SysDRDYFlag, INTENAReg;
+logic InEnaWire, IOFifoReadWire, IOFifoEmptyWire, FLFifoReadWire, FLFifoEmptyWire, SysNextWire;
+wire [84:0] IODataBus, FLDataBus;
+wire [3:0] IOUsedBus, FLUsedBus;
+reg [3:0] ERFlag, LEFlag;
+reg [85:0] DataOutReg;
+reg [63:0] DOReg, SysIOReg;
+reg [20:0] SysTAGReg;
+// task table registers
+reg [31:0] PTSR;
+reg [31:0] PTPTR;
+// task timer resources
+reg [15:0] PTPTRBus;
+reg [15:0] PTRBaseReg [1:0];
+reg [15:0] PTRTimerReg [1:0];
+reg [11:0] PTWDCntr [1:0];
+reg [1:0] PTWDFlag;
+reg [1:0] PTRReloadFlag, PTRCountFlag;
+logic [63:0] DATABus;
+reg [23:0] ClearSelReg;
+
+// Performance metter resources
+reg [3:0] Pram [0:131071];
+reg [16:0] RPtr, WPtr, Limit, DWPtr;
+reg UpdateFlag, EmptyMask, RestartFlag, AddFlag;
+reg [20:0] Counter, MinCounter, MaxCounter;
+reg [23:0] Psel, Csel;
+reg [2:0] Smask;
+reg [3:0] IVReg, PramReg;
+logic [20:0] CntBus;
+logic [1:0] AddMask;
+logic [3:0] IVBus [1:0];
+
+sc_fifo IOFifo(.data({IOTAG,IODAT}), .wrreq(IODRDY), .rdreq(IOFifoReadWire), .clock(CLK), .sclr(~RESETn),
+				.q(IODataBus), .empty(IOFifoEmptyWire), .usedw(IOUsedBus));
+
+defparam IOFifo.LPM_WIDTH=85, IOFifo.LPM_NUMWORDS=16, IOFifo.LPM_WIDTHU=4;
+
+sc_fifo FLFifo(.data({FLTAG,FLDAT}), .wrreq(FLDRDY), .rdreq(FLFifoReadWire), .clock(CLK), .sclr(~RESETn),
+				.q(FLDataBus), .empty(FLFifoEmptyWire), .usedw(FLUsedBus));
+
+defparam FLFifo.LPM_WIDTH=85, FLFifo.LPM_NUMWORDS=16, FLFifo.LPM_WIDTHU=4;
+
+/*
+===================================================================================================
+		Assignments
+===================================================================================================
+*/
+assign LNEXT[0]=InEnaWire, LNEXT[1]=InEnaWire & ~LACT[0], LNEXT[2]=InEnaWire & ~LACT[1] & ~LACT[0];
+assign LNEXT[3]=InEnaWire & ~LACT[2] & ~LACT[1] & ~LACT[0], LNEXT[4]=InEnaWire & ~LACT[3] & ~LACT[2] & ~LACT[1] & ~LACT[0];
+assign DATA=DATABus;
+
+// strobes for CPSR
+assign CPSRSTB[0][0]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[4] & ~TAG[8];
+assign CPSRSTB[0][1]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[5] & ~TAG[8];
+assign CPSRSTB[0][2]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[6] & ~TAG[8];
+
+assign CPSRSTB[1][0]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[4] & TAG[8];
+assign CPSRSTB[1][1]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[5] & TAG[8];
+assign CPSRSTB[1][2]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[6] & TAG[8];
+
+// strobes for CSR
+assign CSRSTB[0][0]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[0] & ~TAG[8];
+assign CSRSTB[0][1]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[1] & ~TAG[8];
+assign CSRSTB[0][2]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[2] & ~TAG[8];
+assign CSRSTB[0][3]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[3] & ~TAG[8];
+
+assign CSRSTB[1][0]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[0] & TAG[8];
+assign CSRSTB[1][1]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[1] & TAG[8];
+assign CSRSTB[1][2]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[2] & TAG[8];
+assign CSRSTB[1][3]=SysACTFlag & ~CMD & (ADDR[6:3]==4'd2) & ~BE[3] & TAG[8];
+
+/*
+===================================================================================================
+		Asynchronous logic.
+===================================================================================================
+*/
+always_comb
+begin
+SysNextWire=~SysDRDYFlag | ~SDDRDY;
+InEnaWire=~InACTReg | (FLACT & FLNEXT) | (SDACT & SDNEXT) | (IOACT & IONEXT) | 
+			(InACTReg & ~FLACT & ~SDACT & ~IOACT & (~SysACTFlag | ~CMD)) | (SysACTFlag & CMD & SysNextWire);
+// reading IO FIFO
+IOFifoReadWire=(IOUsedBus>=FLUsedBus) & ~SDDRDY & ~SysDRDYFlag;
+// reading FL FIFO
+FLFifoReadWire=(IOUsedBus<FLUsedBus) & ~SDDRDY & ~SysDRDYFlag;
+// encoding data that to be write to the memory
+case (TAG[17:16])
+	2'b00:	DATABus={8{DOReg[7:0]}};
+	2'b01:	DATABus={4{DOReg[15:0]}};
+	2'b10:	DATABus={2{DOReg[31:0]}};
+	2'b11:	DATABus=DOReg;
+endcase
+
+// task table index increment
+PTPTRBus=(PTPTR[15:0]+16'd1) & {16{~((PTPTR[15:0] + 16'd1)==PTPTR[31:16])}};
+
+// value for average counter
+CntBus=Counter+{17'd0,IVReg}-{17'd0,(PramReg & {4{UpdateFlag}})};
+
+// adder mask flag
+AddMask[0]=(~(EMPTY[0] | HALT[0]) | EmptyMask) & ((Csel==CSEL[0]) | (~(|Csel))) &
+			((Psel==CPSR[0]) | (~(|Psel))) & ((Smask==CSR[0][26:24]) | (~(|Smask)));
+AddMask[1]=(~(EMPTY[1] | HALT[1]) | EmptyMask) & ((Csel==CSEL[1]) | (~(|Csel))) &
+			((Psel==CPSR[1]) | (~(|Psel))) & ((Smask==CSR[1][26:24]) | (~(|Smask)));
+
+// adder value
+case (IV[0])
+	4'h0: IVBus[0]=0;
+	4'h1: IVBus[0]=1;
+	4'h2: IVBus[0]=1;
+	4'h3: IVBus[0]=2;
+	4'h4: IVBus[0]=1;
+	4'h5: IVBus[0]=2;
+	4'h6: IVBus[0]=2;
+	4'h7: IVBus[0]=3;
+	4'h8: IVBus[0]=1;
+	4'h9: IVBus[0]=2;
+	4'hA: IVBus[0]=2;
+	4'hB: IVBus[0]=3;
+	4'hC: IVBus[0]=2;
+	4'hD: IVBus[0]=3;
+	4'hE: IVBus[0]=3;
+	4'hF: IVBus[0]=4;
+	endcase
+case (IV[1])
+	4'h0: IVBus[1]=0;
+	4'h1: IVBus[1]=1;
+	4'h2: IVBus[1]=1;
+	4'h3: IVBus[1]=2;
+	4'h4: IVBus[1]=1;
+	4'h5: IVBus[1]=2;
+	4'h6: IVBus[1]=2;
+	4'h7: IVBus[1]=3;
+	4'h8: IVBus[1]=1;
+	4'h9: IVBus[1]=2;
+	4'hA: IVBus[1]=2;
+	4'hB: IVBus[1]=3;
+	4'hC: IVBus[1]=2;
+	4'hD: IVBus[1]=3;
+	4'hE: IVBus[1]=3;
+	4'hF: IVBus[1]=4;
+	endcase
+
+end
+/*
+===================================================================================================
+		Synchronous design part
+===================================================================================================
+*/
+always_ff @(negedge RESETn or posedge CLK)
+begin
+if (~RESETn)	begin
+				InACTReg<=1'b0;
+				FLACT<=1'b0;
+				SDACT<=1'b0;
+				IOACT<=1'b0;
+				SysACTFlag<=1'b0;
+				DataOutReg<=86'd0;
+				DTBASE<=40'd0;
+				DTLIMIT<=24'd0;
+				CPUNUM<=8'd0;
+				CENA<=1'b0;
+				MALOCKF<=1'b0;
+				NENA<=4'd0;
+				PTSR<=32'd0;
+				PTPTR<=32'd0;
+				INTSEL<=24'd0;
+				INTRST<=1'b0;
+				INTENA<=1'b0;
+				INTLIMIT<=16'd0;
+				PTRBaseReg[0]<=16'd0;
+				PTRBaseReg[1]<=16'd0;
+				PTRTimerReg[0]<=16'd0;
+				PTRTimerReg[1]<=16'd0;
+				PTWDCntr[0]<=0;
+				PTWDCntr[1]<=0;
+				PTWDFlag<=0;
+				PTRReloadFlag<=0;
+				PTRCountFlag<=0;
+				PTINTR<=0;
+				SysDRDYFlag<=1'b0;
+				LDRDY<=0;
+
+				UpdateFlag<=0;
+				RPtr<=0;
+				WPtr<=0;
+				Limit<=17'd10000;
+				EmptyMask<=0;
+				MinCounter<=20'hFFFFF;
+				MaxCounter<=0;
+				Counter<=0;
+				Csel<=0;
+				Psel<=0;
+				Smask<=0;
+				RestartFlag<=0;
+				AddFlag<=0;
+				end
+else begin
+// activation register
+InACTReg<=(InACTReg & (~FLACT | ~FLNEXT) & (~SDACT | ~SDNEXT) & (~SysACTFlag | (~SysNextWire & CMD)) &
+					(~IOACT | ~IONEXT) & (~InACTReg | FLACT | SDACT | IOACT | SysACTFlag)) | (|LACT);
+if (InEnaWire)
+	casez (LACT)
+		// Core channel
+		5'b????1:	begin
+					ADDR<=LADDR[0];
+					DOReg<=LDATO[0];
+					CMD<=LCMD[0];
+					casez ({LADDR[0][2:0],LSIZEO[0]})
+						5'b00000:	BE<=8'b11111110;
+						5'b00100:	BE<=8'b11111101;
+						5'b01000:	BE<=8'b11111011;
+						5'b01100:	BE<=8'b11110111;
+						5'b10000:	BE<=8'b11101111;
+						5'b10100:	BE<=8'b11011111;
+						5'b11000:	BE<=8'b10111111;
+						5'b11100:	BE<=8'b01111111;
+						5'b00?01:	BE<=8'b11111100;
+						5'b01?01:	BE<=8'b11110011;
+						5'b10?01:	BE<=8'b11001111;
+						5'b11?01:	BE<=8'b00111111;
+						5'b0??10:	BE<=8'b11110000;
+						5'b1??10:	BE<=8'b00001111;
+						5'b???11:	BE<=8'b00000000;
+						endcase
+					TAG<={LADDR[0][2:0],LSIZEO[0],3'd0,LTAGO[0]};
+					FLACT<=InEnaWire & (LADDR[0]<45'h040000000);
+					SDACT<=InEnaWire & (LADDR[0]>45'h03FFFFFFF) & (LADDR[0]<45'h1FFFFFFF0000);
+					IOACT<=InEnaWire & (LADDR[0]>=45'h1FFFFFFF0000) & ~(&LADDR[0][15:7]);
+					SysACTFlag<=InEnaWire & (LADDR[0]>=45'h1FFFFFFFFF80);
+					end
+		// Network channel
+		5'b???10:	begin
+					ADDR<=LADDR[1];
+					DOReg<=LDATO[1];
+					CMD<=LCMD[1];
+					casez ({LADDR[1][2:0],LSIZEO[1]})
+						5'b00000:	BE<=8'b11111110;
+						5'b00100:	BE<=8'b11111101;
+						5'b01000:	BE<=8'b11111011;
+						5'b01100:	BE<=8'b11110111;
+						5'b10000:	BE<=8'b11101111;
+						5'b10100:	BE<=8'b11011111;
+						5'b11000:	BE<=8'b10111111;
+						5'b11100:	BE<=8'b01111111;
+						5'b00?01:	BE<=8'b11111100;
+						5'b01?01:	BE<=8'b11110011;
+						5'b10?01:	BE<=8'b11001111;
+						5'b11?01:	BE<=8'b00111111;
+						5'b0??10:	BE<=8'b11110000;
+						5'b1??10:	BE<=8'b00001111;
+						5'b???11:	BE<=8'b00000000;
+						endcase
+					TAG<={LADDR[1][2:0],LSIZEO[1],3'd1,LTAGO[1]};
+					FLACT<=InEnaWire & (LADDR[1]<45'h040000000);
+					SDACT<=InEnaWire & (LADDR[1]>45'h03FFFFFFF) & (LADDR[1]<45'h1FFFFFFF0000);
+					IOACT<=InEnaWire & (LADDR[1]>=45'h1FFFFFFF0000) & ~(&LADDR[1][15:7]);
+					SysACTFlag<=InEnaWire & (LADDR[1]>=45'h1FFFFFFFFF80);
+					end
+		// stream controller channel
+		5'b??100:	begin
+					ADDR<=LADDR[2];
+					DOReg<=LDATO[2];
+					CMD<=LCMD[2];
+					casez ({LADDR[2][2:0],LSIZEO[2]})
+						5'b00000:	BE<=8'b11111110;
+						5'b00100:	BE<=8'b11111101;
+						5'b01000:	BE<=8'b11111011;
+						5'b01100:	BE<=8'b11110111;
+						5'b10000:	BE<=8'b11101111;
+						5'b10100:	BE<=8'b11011111;
+						5'b11000:	BE<=8'b10111111;
+						5'b11100:	BE<=8'b01111111;
+						5'b00?01:	BE<=8'b11111100;
+						5'b01?01:	BE<=8'b11110011;
+						5'b10?01:	BE<=8'b11001111;
+						5'b11?01:	BE<=8'b00111111;
+						5'b0??10:	BE<=8'b11110000;
+						5'b1??10:	BE<=8'b00001111;
+						5'b???11:	BE<=8'b00000000;
+						endcase
+					TAG<={LADDR[2][2:0],LSIZEO[2],3'd2,LTAGO[2]};
+					FLACT<=InEnaWire & (LADDR[2]<45'h040000000);
+					SDACT<=InEnaWire & (LADDR[2]>45'h03FFFFFFF) & (LADDR[2]<45'h1FFFFFFF0000);
+					IOACT<=InEnaWire & (LADDR[2]>=45'h1FFFFFFF0000) & ~(&LADDR[2][15:7]);
+					SysACTFlag<=InEnaWire & (LADDR[2]>=45'h1FFFFFFFFF80);
+					end
+		// Context controller
+		5'b?1000:	begin
+					ADDR<=LADDR[3];
+					DOReg<=LDATO[3];
+					CMD<=LCMD[3];
+					casez ({LADDR[3][2:0],LSIZEO[3]})
+						5'b00000:	BE<=8'b11111110;
+						5'b00100:	BE<=8'b11111101;
+						5'b01000:	BE<=8'b11111011;
+						5'b01100:	BE<=8'b11110111;
+						5'b10000:	BE<=8'b11101111;
+						5'b10100:	BE<=8'b11011111;
+						5'b11000:	BE<=8'b10111111;
+						5'b11100:	BE<=8'b01111111;
+						5'b00?01:	BE<=8'b11111100;
+						5'b01?01:	BE<=8'b11110011;
+						5'b10?01:	BE<=8'b11001111;
+						5'b11?01:	BE<=8'b00111111;
+						5'b0??10:	BE<=8'b11110000;
+						5'b1??10:	BE<=8'b00001111;
+						5'b???11:	BE<=8'b00000000;
+						endcase
+					TAG<={LADDR[3][2:0],LSIZEO[3],3'd3,LTAGO[3]};
+					FLACT<=InEnaWire & (LADDR[3]<45'h040000000);
+					SDACT<=InEnaWire & (LADDR[3]>45'h03FFFFFFF) & (LADDR[3]<45'h1FFFFFFF0000);
+					IOACT<=InEnaWire & (LADDR[3]>=45'h1FFFFFFF0000) & ~(&LADDR[3][15:7]);
+					SysACTFlag<=InEnaWire & (LADDR[3]>=45'h1FFFFFFFFF80);
+					end
+		// Messenger
+		5'b10000:	begin
+					ADDR<=LADDR[4];
+					DOReg<=LDATO[4];
+					CMD<=LCMD[4];
+					casez ({LADDR[4][2:0],LSIZEO[4]})
+						5'b00000:	BE<=8'b11111110;
+						5'b00100:	BE<=8'b11111101;
+						5'b01000:	BE<=8'b11111011;
+						5'b01100:	BE<=8'b11110111;
+						5'b10000:	BE<=8'b11101111;
+						5'b10100:	BE<=8'b11011111;
+						5'b11000:	BE<=8'b10111111;
+						5'b11100:	BE<=8'b01111111;
+						5'b00?01:	BE<=8'b11111100;
+						5'b01?01:	BE<=8'b11110011;
+						5'b10?01:	BE<=8'b11001111;
+						5'b11?01:	BE<=8'b00111111;
+						5'b0??10:	BE<=8'b11110000;
+						5'b1??10:	BE<=8'b00001111;
+						5'b???11:	BE<=8'b00000000;
+						endcase
+					TAG<={LADDR[4][2:0],LSIZEO[4],3'd4,LTAGO[4]};
+					FLACT<=InEnaWire & (LADDR[4]<45'h040000000);
+					SDACT<=InEnaWire & (LADDR[4]>45'h03FFFFFFF) & (LADDR[4]<45'h1FFFFFFF0000);
+					IOACT<=InEnaWire & (LADDR[4]>=45'h1FFFFFFF0000) & ~(&LADDR[4][15:7]);
+					SysACTFlag<=InEnaWire & (LADDR[4]>=45'h1FFFFFFFFF80);
+					end
+		default:	begin
+					FLACT<=1'b0;
+					SDACT<=1'b0;
+					IOACT<=1'b0;
+					SysACTFlag<=1'b0;
+					end
+		endcase
+//
+// Processign readed data
+//
+if (SDDRDY) DataOutReg[84:0]<={SDTAG,SDDAT};
+	else if (SysDRDYFlag) DataOutReg[84:0]<={SysTAGReg, SysIOReg};
+		else if (IOUsedBus<FLUsedBus) DataOutReg[84:0]<=FLDataBus;
+			else DataOutReg[84:0]<=IODataBus;
+DataOutReg[85]<=SDDRDY | ~IOFifoEmptyWire | ~FLFifoEmptyWire | SysDRDYFlag;
+// DRDY signals and tags
+LDRDY[0]<=DataOutReg[85] && (DataOutReg[79:77] == 3'd0);
+LDRDY[1]<=DataOutReg[85] && (DataOutReg[79:77] == 3'd1);
+LDRDY[2]<=DataOutReg[85] && (DataOutReg[79:77] == 3'd2);
+LDRDY[3]<=DataOutReg[85] && (DataOutReg[79:77] == 3'd3);
+LDRDY[4]<=DataOutReg[85] && (DataOutReg[79:77] == 3'd4);
+
+LTAGI<=DataOutReg[76:64];
+
+LSIZEI<={1'b0, DataOutReg[81:80]};
+// swapping bytes
+casez (DataOutReg[84:80])
+	5'b00100:	LDATI[7:0]<=DataOutReg[15:8];
+	5'b01000:	LDATI[15:0]<=DataOutReg[31:16];
+	5'b01100:	LDATI[7:0]<=DataOutReg[31:24];
+	5'b10000:	LDATI[15:0]<=DataOutReg[47:32];
+	5'b10100:	LDATI[7:0]<=DataOutReg[47:40];
+	5'b11000:	LDATI[15:0]<=DataOutReg[63:48];
+	5'b11100:	LDATI[7:0]<=DataOutReg[63:56];
+	5'b00?01:	LDATI[15:0]<=DataOutReg[15:0];
+	5'b01?01:	LDATI[15:0]<=DataOutReg[31:16];
+	5'b10?01:	LDATI[15:0]<=DataOutReg[47:32];
+	5'b11?01:	LDATI[15:0]<=DataOutReg[63:48];
+	5'b0??10:	LDATI[31:0]<=DataOutReg[31:0];
+	5'b1??10:	LDATI[31:0]<=DataOutReg[63:32];
+	default:	LDATI<=DataOutReg[63:0];
+	endcase
+
+//---------------------------------------------------------
+// 			Control registers system
+
+// DTR - descriptor register reading and writing. DTBASE and DTLIMIT
+if (SysACTFlag & ~CMD & ~(|ADDR[6:3]) & ~BE[0]) DTBASE[7:0]<=DATA[7:0];
+if (SysACTFlag & ~CMD & ~(|ADDR[6:3]) & ~BE[1]) DTBASE[15:8]<=DATA[15:8];
+if (SysACTFlag & ~CMD & ~(|ADDR[6:3]) & ~BE[2]) DTBASE[23:16]<=DATA[23:16];
+if (SysACTFlag & ~CMD & ~(|ADDR[6:3]) & ~BE[3]) DTBASE[31:24]<=DATA[31:24];
+if (SysACTFlag & ~CMD & ~(|ADDR[6:3]) & ~BE[4]) DTBASE[39:32]<=DATA[39:32];
+if (SysACTFlag & ~CMD & ~(|ADDR[6:3]) & ~BE[5]) DTLIMIT[7:0]<=DATA[47:40];
+if (SysACTFlag & ~CMD & ~(|ADDR[6:3]) & ~BE[6]) DTLIMIT[15:8]<=DATA[55:48];
+if (SysACTFlag & ~CMD & ~(|ADDR[6:3]) & ~BE[7]) DTLIMIT[23:16]<=DATA[63:56];
+
+// CPUNR and network enable bits
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[0]) CPUNUM<=DATA[7:0];
+// controller enable bit
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[3]) CENA<=DATA[31];
+// memory allocation enable flag
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[3]) MALOCKF<=DATA[30];
+// network error flags
+ERFlag[0]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[4]) ? DATA[37] : (ERFlag[0] & RESETn) | NERR[0];
+ERFlag[1]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[5]) ? DATA[45] : (ERFlag[1] & RESETn) | NERR[1];
+ERFlag[2]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[6]) ? DATA[53] : (ERFlag[2] & RESETn) | NERR[2];
+ERFlag[3]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[7]) ? DATA[61] : (ERFlag[3] & RESETn) | NERR[3];
+// link activity flags
+LEFlag[0]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[4]) ? DATA[38] : (LEFlag[0] & RESETn) | NLE[0];
+LEFlag[1]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[5]) ? DATA[46] : (LEFlag[1] & RESETn) | NLE[1];
+LEFlag[2]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[6]) ? DATA[54] : (LEFlag[2] & RESETn) | NLE[2];
+LEFlag[3]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[7]) ? DATA[62] : (LEFlag[3] & RESETn) | NLE[3];
+// network enable flags
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[4]) NENA[0]<=DATA[39];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[5]) NENA[1]<=DATA[47];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[6]) NENA[2]<=DATA[55];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd1) & ~BE[7]) NENA[3]<=DATA[63];
+
+// registers PTSR and PTPTR
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd3) & ~BE[0]) PTSR[7:0]<=DATA[7:0];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd3) & ~BE[1]) PTSR[15:8]<=DATA[15:8];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd3) & ~BE[2]) PTSR[23:16]<=DATA[23:16];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd3) & ~BE[3]) PTSR[31:24]<=DATA[31:24];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd3) & ~BE[4]) PTPTR[7:0]<=DATA[39:32];
+		else if (|(PTINTR & PTWDFlag)) PTPTR[7:0]<=PTPTRBus[7:0];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd3) & ~BE[5]) PTPTR[15:8]<=DATA[47:40];
+		else if (|(PTINTR & PTWDFlag)) PTPTR[15:8]<=PTPTRBus[15:8];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd3) & ~BE[6]) PTPTR[23:16]<=DATA[55:48];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd3) & ~BE[7]) PTPTR[31:24]<=DATA[63:56];
+
+// interrupt control registers
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd6) & ~BE[0]) INTSEL[7:0]<=DATA[7:0];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd6) & ~BE[1]) INTSEL[15:8]<=DATA[15:8];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd6) & ~BE[2]) INTSEL[23:16]<=DATA[23:16];
+// reset bit of the interrupt controller
+INTRST<=SysACTFlag & ~CMD & (ADDR[6:3]==4'd6) & ~BE[3] & DATA[24];
+// enable interrupt controller
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd6) & ~BE[3]) INTENAReg<=DATA[31];
+INTENA<=INTENAReg & (CSR[1][21] | CSR[0][21]);
+// number of records in the interrupt table
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd6) & ~BE[4]) INTLIMIT[7:0]<=DATA[39:32];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd6) & ~BE[5]) INTLIMIT[15:8]<=DATA[47:40];
+
+// read error status register flag
+ESRRD<=SysACTFlag & CMD & (ADDR[6:3]==4'd7) & RESETn;
+
+//=================================================================================================
+//		Task timer
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[0] & ~TAG[8]) PTRBaseReg[0][7:0]<=DATA[7:0];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[1] & ~TAG[8]) PTRBaseReg[0][15:8]<=DATA[15:8];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[0] & TAG[8]) PTRBaseReg[1][7:0]<=DATA[7:0];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[1] & TAG[8]) PTRBaseReg[1][15:8]<=DATA[15:8];
+// reload timer flag
+PTRReloadFlag[0]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[1] & ~TAG[8]);
+PTRReloadFlag[1]<=(SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[1] & TAG[8]);
+// timer-counter
+PTRTimerReg[0]<=TCKOVR[0] ? 16'd2 : (PTRReloadFlag[0] ? PTRBaseReg[0] : PTRTimerReg[0]-{15'd0,PTRCountFlag[0]});
+PTRTimerReg[1]<=TCKOVR[1] ? 16'd2 : (PTRReloadFlag[1] ? PTRBaseReg[1] : PTRTimerReg[1]-{15'd0,PTRCountFlag[1]});
+// PTR count flag
+PTRCountFlag[0]<=TCK & (|PTRTimerReg[0]) & CSR[0][22] & PTSR[31] & ~HALT[0];
+PTRCountFlag[1]<=TCK & (|PTRTimerReg[1]) & CSR[1][22] & PTSR[31] & ~HALT[1];
+// Task switch request
+PTINTR[0]<=((PTRTimerReg[0]==16'd1) & PTRCountFlag[0])|(CSR[0][22] & PTSR[31] & (&PTWDCntr[0]));
+PTINTR[1]<=((PTRTimerReg[1]==16'd1) & PTRCountFlag[1])|(CSR[1][22] & PTSR[31] & (&PTWDCntr[1]));
+// WatchDog counter
+PTWDCntr[0]<=(PTWDCntr[0]+12'd1) & {12{~(|PTRTimerReg[0])}};
+PTWDCntr[1]<=(PTWDCntr[1]+12'd1) & {12{~(|PTRTimerReg[1])}};
+PTWDFlag[0]<=CSR[0][22] & PTSR[31] & (&PTWDCntr[0]);
+PTWDFlag[1]<=CSR[1][22] & PTSR[31] & (&PTWDCntr[1]);
+
+//=================================================================================================
+//		Stop process register
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[4]) ClearSelReg[7:0]<=DATA[39:32];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[5]) ClearSelReg[15:8]<=DATA[47:40];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[6]) ClearSelReg[23:16]<=DATA[55:48];
+// clear process interrupt
+CPINTR[0]<=SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[7] & ~TAG[8];
+CPINTR[1]<=SysACTFlag & ~CMD & (ADDR[6:3]==4'd8) & ~BE[7] & TAG[8];
+
+// debug registers
+// control 
+
+//---------------------------------------------------------
+// output patch from system registers
+
+// data ready register
+SysDRDYFlag<=(SysDRDYFlag & SDDRDY) | (SysACTFlag & CMD);
+
+if (SysNextWire)
+	begin
+	SysTAGReg<=TAG;
+	case (ADDR[6:3])
+		4'd0: SysIOReg<={DTLIMIT, DTBASE};
+		4'd1: SysIOReg<={NENA[3],LEFlag[3],ERFlag[3],5'd1, NENA[2],LEFlag[2],ERFlag[2],5'd1, NENA[1],LEFlag[1],ERFlag[1],5'd1, NENA[0],LEFlag[0],ERFlag[0],5'd1,CENA,MALOCKF,3'd0,CINIT,NINIT,SINIT,8'd0,CoreType,CPUNUM};
+		4'd2: SysIOReg<={8'd0, TAG[8] ? CPSR[1] : CPSR[0], 5'd0, TAG[8] ? CSR[1][26:0] : CSR[0][26:0]};
+		4'd3: SysIOReg<={PTPTR, PTSR};
+		4'd4: SysIOReg<={24'd0, FREEMEM};
+		4'd5: SysIOReg<={24'd0, CACHEDMEM};
+		4'd6: SysIOReg<={16'd0, INTLIMIT, INTENAReg, 7'd0, INTSEL};
+		4'd7: SysIOReg<=ESR;
+		4'd8: SysIOReg<={8'd0,ClearSelReg, TAG[8] ? PTRTimerReg[1] : PTRTimerReg[0], TAG[8] ? PTRBaseReg[1] : PTRBaseReg[0]};
+		4'd12: SysIOReg<={32'd0,11'd0,Counter};
+		4'd13: SysIOReg<={11'd0,MaxCounter,11'd0,MinCounter};
+		4'd14: SysIOReg<={8'd0,Psel,8'd0,Csel};
+		4'd15: SysIOReg<={32'd0,EmptyMask,Smask,3'd0,TCKScaler,Limit};
+		endcase
+	end
+/*
+
+Measure performance
+	1. minimum				/ 20 bit
+	2. maximim				/ 20 bit
+	3. current				/ 20 bit
+Settings
+	1. process selector		/ 24 bit
+	2. code selector		/ 24 bit
+	3. measure interval 	/ 17 bit
+	4. empty state mask bit	/ 1 bit
+	5. state mask			/ 3 bit
+
+*/
+// code selector register
+if (SysACTFlag & ~CMD & (ADDR[6:3]==14) & ~BE[0]) Csel[7:0]<=DATA[7:0];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==14) & ~BE[1]) Csel[15:8]<=DATA[15:8];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==14) & ~BE[2]) Csel[23:16]<=DATA[23:16];
+
+// process selector register
+if (SysACTFlag & ~CMD & (ADDR[6:3]==14) & ~BE[4]) Psel[7:0]<=DATA[39:32];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==14) & ~BE[5]) Psel[15:8]<=DATA[47:40];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==14) & ~BE[6]) Psel[23:16]<=DATA[55:48];
+
+// empty and state mask
+if (SysACTFlag & ~CMD & (ADDR[6:3]==15) & ~BE[3]) 
+	begin
+	EmptyMask<=DATA[31];
+	Smask<=DATA[30:28];
+	end
+
+// measure limit
+if (SysACTFlag & ~CMD & (ADDR[6:3]==15) & ~BE[0]) Limit[7:0]<=DATA[7:0];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==15) & ~BE[1]) Limit[15:8]<=DATA[15:8];
+if (SysACTFlag & ~CMD & (ADDR[6:3]==15) & ~BE[2]) Limit[16]<=DATA[16];
+
+// restart flag
+RestartFlag<=SysACTFlag & ~CMD & ADDR[6] & ADDR[5];
+
+// enable decrement flag
+UpdateFlag<=(UpdateFlag | (Limit==WPtr)) & ~RestartFlag;
+
+// average counter
+if (RestartFlag) Counter<=21'd0;
+	else if (AddFlag) Counter<=CntBus;
+	
+// minimum performance
+if (RestartFlag) MinCounter<=21'h1FFFFF;
+	else if ((MinCounter>Counter) & UpdateFlag) MinCounter<=Counter;
+
+// maximum performance
+if (RestartFlag) MaxCounter<=21'd0;
+	else if ((MaxCounter<Counter) & UpdateFlag) MaxCounter<=Counter;
+	
+// ram enable
+AddFlag<=|AddMask;
+
+// instruction number register
+IVReg<=(IVBus[0] & {4{AddMask[0]}}) + (IVBus[1] & {4{AddMask[1]}});
+
+// decrement value
+PramReg<=Pram[RPtr];
+
+// read pointer
+if ((RestartFlag)|(Limit==RPtr)) RPtr<=0;
+	else if (UpdateFlag & (|AddMask)) RPtr<=RPtr+17'd1;
+// write pointer
+if (AddFlag) Pram[DWPtr]<=IVReg;
+if ((RestartFlag)|(Limit==WPtr)) WPtr<=0;
+	else if (|AddMask) WPtr<=WPtr+17'd1;
+DWPtr<=WPtr;
+
+end
+end
+
+endmodule: MUX64DT
