@@ -1,0 +1,87 @@
+;
+;--------------------------------------------------------------------------------------------------
+;		Erase Flash command
+;
+EraseFlash:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar3
+pusha	ar5
+			lid			r0:w0,(Offset CmdStates shl 2)+3
+			ld			rb4,mar6:r0:0,2
+			lsli		rd4,rd4:24
+			calli		Displacement ReadHexParam
+; reading  flash ID
+			lid			r2:w0,FlashCtrlSelector
+			or			rd2,rd2:rd4
+			lar			ar1,r2
+			lid			r1:w0,0
+			lid			r2:w0,FlashDataSelector
+			or			rd2,rd2:rd4
+			lar			ar3,r2
+			lid			r2:w0,2
+			lid			r3:w0,FlashWBSelector
+			or			rd3,rd3:rd4
+			lar			ar5,r3
+			lid			r3:w0,90h						; read chip ID
+			st			mar0:r2:0,2,rb3
+			ld			rw3,mar1:r1:0,2
+			xor			rw0,rw0:rw3
+			jc			r0:zf,Displacement EF1
+; if wrong instruction
+EF0:
+popa	ar5
+popa	ar3
+popa	ar2
+popa	ar1
+popa	ar0
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if instruction valid
+EF1:
+			lid			r3:w0,06h
+			st			mar2:r1:0,2,rb3							; write enable instruction
+			lid			r0:w0,1
+			st			mar0:r1:0,2,rw0							; run
+			lid			r3:w0,0C7h
+			st			mar2:r1:0,2,rb3							; chip erase instruction
+			st			mar0:r1:0,2,rw0							; run
+			lid			r0:w0,7Fh
+EF3:
+			nop
+			loop		r0,Displacement EF3
+			
+			lid			r3:w0,05h
+			st			mar0:r2:0,2,rb3							; read status
+			lid			r0:w0,1
+EF2:
+			ld			rb3,mar1:r1:0,2
+			and			rb3,rb3:rb0
+			jnc			r3:zf,Displacement EF2
+; if erase process terminated
+			lia			ar1:w0,IOSelector
+			jc			r4:zf,Displacement EF4
+			lid			r0:w0,EchoStreamSelector
+			or			rd0,rd0:rd4
+			lar			ar1,r0
+EF4:
+			lid			r1:w0,8
+			lid			r0:w0,45h
+			st			mar0:r1:0,2,rb0
+			lid			r0:w0,41h
+			st			mar0:r1:0,2,rb0
+			lid			r0:w0,0dh
+			st			mar0:r1:0,2,rb0
+			lid			r0:w0,0Ah
+			st			mar0:r1:0,2,rb0
+			jumpi		Displacement EF0

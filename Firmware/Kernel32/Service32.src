@@ -1,0 +1,1431 @@
+;==================================================================================================
+;									Service procedures
+; 00 Close process
+; 01 resize object / get object size
+; 02 create/delete stream
+; 03 set interrupt handler
+; 04 get files catalog
+; 05 file read
+; 06 file write
+; 07 delete file
+; 08 user LED's output 
+; 09 String output to the terminal UART
+;==================================================================================================
+Service:
+			lid				r1:w0,0FFFFh
+			lid				r3:w0,0
+			lia				ar12:w0,Offset FunctionTable shl 2
+			lid				r1:w1,0FFh
+			lid				r5:w0,0Fh
+			getpar			r3
+			and				rq1,rq3:rq1						; R1 - selector
+			lsri			rq3,rq3:24
+			lar				ar1,r1
+			lia				ar0:w0,0
+			and				rq3,rq3:rb5
+			lsli			rq3,rq3:1
+			lid				r0:w0,0
+			ld				rw0,mar6:r3:0,3
+			jumpr			r0
+
+		align 8
+FunctionTable:
+		word		Offset ServiceCloseProcess shl 2		; 00
+		word		Offset ServiceResizeObject shl 2		; 01
+		word		Offset ServiceStream shl 2				; 02
+		word		Offset ServiceInterrupt shl 2			; 03
+		word		Offset ServiceCatalog shl 2				; 04
+		word		Offset ServiceFileRead shl 2			; 05
+		word		Offset ServiceFileWrite shl 2			; 06
+		word		Offset ServiceDeleteFile shl 2			; 07
+		word		Offset ServiceLEDOutput shl 2			; 08
+		word		Offset ServiceUART shl 2				; 09
+		word		Offset ServiceNOP shl 2					; 0A
+		word		Offset ServiceNOP shl 2					; 0B
+		word		Offset ServiceNOP shl 2					; 0C
+		word		Offset ServiceNOP shl 2					; 0D
+		word		Offset ServiceNOP shl 2					; 0E
+		word		Offset ServiceNOP shl 2					; 0F
+
+;--------------------------------------------------------------------------------------------------
+;			NOP, reserved entry
+;
+ServiceNOP:
+			endmsg
+
+;--------------------------------------------------------------------------------------------------
+;			Close process
+;
+ServiceCloseProcess:
+			lia				ar1:w0,SysSelector
+			lid				r2:w0,PLR_Offset
+			copyzx			rq7,rw2
+			lia				ar0:w0,6
+			lid				r3:w0,0
+			lid				r4:w0,0
+			ld				rw3,mar0:r2:0,2					; reading table selector
+			lar				ar3,r3
+			ld				rw4,mar0:r7:0,3					; reading table count
+			lid				r2:w0,CPSR_Offset
+			lid				r5:w0,0
+			lar				ar2,r5
+			ld				rw5,mar0:r2:0,2					; reading current process selector
+; disable task switch
+			lid				r1:w0,0
+			lid				r2:w0,CSR_Offset + 2
+			st				mar0:r2:0,2,rb1
+			lid				r0:w0,16
+SClP0:
+			nop
+			loop			r0,displacement SClP0
+			lid				r7:w0,-4
+; search and delete PSO selector from table
+SClP1:
+			ld				rd0,mar1:r4:0,4
+			xor				rd1,rd0:rd5
+			jnc				r1:zf,displacement SClP2
+; if entry found
+			st				mar1:r7:0,3,rd1
+SClP2:
+			loop			r4,displacement SClP1
+; enable task switching
+			lid				r9:w0,0f0h
+			st				mar0:r2:0,2,rb9
+SClP3:
+			sleep
+			jumpi			displacement SClP3
+
+;--------------------------------------------------------------------------------------------------
+;			Change object size
+;	input
+; 0 - object selector
+; 4 - increment or decrement value, or 0
+;	output
+; 8 - old length of object
+; 12 - new length of object
+;
+ServiceResizeObject:
+			lid				r0:w0,0
+			lid				r4:w0,0
+			ld				rd0,mar0:r4:0,4					; object selector
+			ld				rd4,mar0:r4:0,4					; increment value
+			copyzx			rq5,rd0
+			calli			Displacement GetObjectSize
+			or				rd0,rd0:rd0
+			or 				rd4,rd4:rd4
+			st				mar0:r4:0,4,rd0					; store old object length in 32-byte paragraphs
+			jc				r0:zf,displacement SRO0
+			jnc				r4:zf,displacement SRO1
+SRO0:
+			st				mar0:r4:0,4,rd0					; store new object length
+			endmsg
+; if object must be resized
+SRO1:
+			lia				ar3:w0,DTSelector				; selector of descriptor table
+SRO2:
+			lsli			rd5,rd5:5						; offset in the DT to the start
+			lar				ar2,r5							; pointer to the descriptor
+			ld				rd5,mar1:r3:3,0					; reading ULS
+			or				rd5,rd5:rd5
+			jnc				r5:zf,displacement SRO2
+; if last descriptor found
+			ld				rb8,mar1:r3:5,0					; task ID low byte
+			ld				rb9,mar1:r3:6,0					; task ID hig byte
+			ld				rb10,mar1:r3:7,0				; reading control byte
+			copysx			rq7,rd4							; copy increment value
+			jc				r4:sf,displacement SRO3
+;
+; if object must be enlarged
+;
+			lsli			rq4,rq4:32
+			memalloc		r4
+			or				rd4,rd4:rd4
+			jc				r4:zf,displacement SRO0
+; if object allocated
+			sar				r5,ar2
+			lsri			rq5,rq5:5
+			st				mar1:r3:3,0,rd4					; store upper link selector
+			lsli			rq4,rq4:5
+			lar				ar2,r4
+			lid				r6:w0,5
+			st				mar1:r6:0,6,rb8					; low task id
+			st				mar1:r6:0,6,rb9					; high task id
+			st				mar1:r6:0,6,rb10				; store conrol byte
+			st				mar1:r6:0,6,rd5					; store LLS
+			lid				r8:w0,0
+			st				mar1:r6:0,6,rd8					; store ULS
+			st				mar1:r6:0,6,rd0					; store lower limit
+			addsx			rq0,r0:r7						; new length
+			st				mar1:r6:0,6,rd0					; store upper limit
+			jumpi			displacement SRO0
+;
+; 	if object must be reduced
+; R0 - current length
+; R4 - decrement value
+SRO3:
+			addsx			rq1,rd0:rd4
+			copysx			rq0,rd1
+			jc				r1:sf,displacement SRODelete	; if object should be deleted
+			jc				r1:zf,displacement SRODelete
+SRO4:
+			ld				rd1,mar1:r3:4,0					; lower limit of current segment
+			ld				rd2,mar1:r3:5,0					; upper limit
+			neg				rd1,rd1
+			addsx			rq1,rd1:rd2						; length of segment
+			addsx			rq4,rd1:rd4
+			jnc				r4:sf,displacement SROSegmentReduce
+; if length of segment less than decrement value then delete segment and promote pointer to the previous segment
+; R4 rest of the decrement value
+SRODeleteSegment:
+			lid				r8:w0,0
+			ld				rd8,mar1:r3:2,0					; lower link selector
+			lid				r9:w0,0
+			lid				r6:w0,8
+			st				mar1:r6:0,6,rq9					; zero to LLS and ULS
+			st				mar1:r6:0,6,rd9					; zero to lower limit
+			st				mar1:r6:0,6,rd1					; length of the segment
+			sar				r2,ar2
+			lsri			rq2,rd2:5
+			memalloc		r2								; delete the segment
+			lsli			rq8,rd8:5
+			lar				ar2,r8
+			st				mar1:r3:3,0,rd9					; remove upper link selector
+			jc				r4:zf,displacement SRO0
+			jumpi			displacement SRO4
+; if last segment should be reduced
+; R4 - new length of the last segment
+; R1 - old length of the last segment
+SROSegmentReduce:
+			jc				r4:zf,displacement SRODeleteSegment
+; stop the memory allocation controller
+			lia				ar5:w0,SysSelector
+			lid				r2:w0,MPCR_Offset+3
+			lid				r3:w0,0C0h
+			st				mar2:r2:0,2,rb3					; disable memory allocation system
+			sar				r8,ar2							; store pointer to the current segment
+			ld				rq13,mar1:r0:0,0				; read base address
+			lia				ar2:w0,32+7						; pointer to the control byte
+			copysx			rq3,rd1							; old length of the last segment
+			lid				r2:w0,DTR_Offset+4
+			ld				rd9,mar2:r2:0,2
+			lsri			rq9,rd9:8						; length of DT
+			lid				r1:w0,32
+; skip first entry
+			lid				r15:w0,-1
+			addsx			rd9,rd9:rb15
+; search free DT Entry
+SRO5:
+			sar				r11,ar2
+			ld				rb2,mar1:r1:0,1
+			lsli			rb2,rb2:6
+			jc				r2:zf,displacement SRO6
+			loop			r9,displacement SRO5
+			endmsg
+; free entry found
+SRO6:
+			lid				r14:w0,0FFFFh
+			lid				r12:w0,0FFE0h
+			and				rd11,rd11:rd12
+			lid				r14:w1,0FFFFh
+			lar				ar2,r11
+			lid				r10:w0,1
+			lid				r14:w2,0FFh
+			and				rq13,rq13:rq14
+			addsx			rq13,rq13:rd4					; base of the free segment
+			xor				rq14,rq14:rq14
+			lid				r16:w0,138h
+			fieldset		rq13,r10:r16
+			st				mar1:r4:0,4,rq13
+			st				mar1:r4:0,4,rq14				; ULS,LLS
+			st				mar1:r4:0,4,rd14				; lower limit
+			neg				rq2,rd4
+			addsx			rq1,rq3:rq2
+			st				mar1:r4:0,4,rd1					; upper limit
+			lar				ar2,r8							; restore pointer to the last segment
+			ld				rd2,mar1:r3:4,0
+			addsx			rd2,rd2:rd4
+			st				mar1:r3:5,0,rd2
+			st				mar0:r4:0,4,rd0					; store new object length
+; turn ON memory allocation system
+			lid				r2:w0,MPCR_Offset+3
+			lid				r3:w0,80h
+			st				mar2:r2:0,2,rb3					; enable memory allocation system
+			endmsg
+; delete whole object
+SRODelete:
+			lid				r1:w0,0
+			lid				r2:w0,0
+			ld				rd1,mar0:r2:0,2
+			memalloc		r1
+			jumpi			displacement SRO0
+			
+			
+;--------------------------------------------------------------------------------------------------
+;			Create/delete stream 
+;	input
+; 0 - buffer size
+; 4 - selector
+; 8 - data size
+;
+ServiceStream:
+			ld				rd10,mar0:r4:0,4				; buffer size
+			ld				rd11,mar0:r4:0,4				; selector /if stream should be deleted/
+			ld				rd12,mar0:r0:0,0				; watchdog and data size
+			lia				ar3:w0,DTSelector
+			or				rd11,rd11:rd11
+			jnc				r11:zf,displacement SSDelete
+;
+; if stream should be created
+;
+			lsli			rq1,rd1:5
+			lar				ar2,r1
+			lid				r8:w0,0
+			ld				rd13,mar1:r3:1,0				; read TASK ID & CPL from parameters object
+			pos				r8,rd10
+			jnc				r8:zf,displacement SS1
+			endmsg
+SS1:
+			lid				r9:w0,1
+			lsl				rq9,rq9:r8						; R9 - length of data buffer in data units
+			lid				r7:w0,-1
+			addsx			rq10,rq9:rb7					; create pointer mask in R10
+			copyzx			rd6,rd12
+			csli			rd6,rd6:2
+			lid				r5:w0,3
+			lid				r4:w0,32
+			and				rd6,rd6:rd5
+			lsl				rq9,rq9:r6
+			lsri			rq9,rq9:5						; length of data buffer in paragraphs
+			jnc				r9:zf,displacement SS2
+			endmsg
+SS2:
+			lsl				rq9,rq9:r4
+			memalloc		r9
+			or				rd9,rd9:rd9
+			jnc				r9:zf,displacement SS3
+			endmsg
+SS3:
+			lid				r2:w0,4
+			st				mar0:r2:0,2,rd9						; store selector
+			lsli			rq9,rd9:5
+			lid				r6:w0,0
+			lar				ar2,r9
+			lid				r5:w0,0FF00h
+			lid				r6:w1,3300h
+			and				rd13,rd13:rd5
+			or				rd13,rd13:rd6
+			ld				rd2,mar1:r3:1,0
+			lid				r1:w0,0ffh
+			and				rd2,rd2:rd1
+			or				rd2,rd2:rd13
+			lid				r6:w0,4
+			st				mar1:r6:0,6,rd2					; set AR and TaskID
+			st				mar1:r6:0,6,rd10				; pointer mask
+			st				mar1:r3:0,6,rd12				; watchdog and datsize
+			endmsg
+;
+; Delete stream
+;
+SSDelete:
+			copyzx			rq15,rd11
+			lsli			rq11,rd11:5
+			lar				ar2,r11
+			lid				r3:w0,7
+			lid				r1:w0,3
+			ld				rb0,mar1:r3:0,3
+			and				rb0,rb0:rb1
+			xor				rb0,rb0:rb1
+			jc				r0:zf,displacement SS4
+			endmsg
+SS4:
+			lid				r2:w0,3Eh
+			st				mar1:r3:0,3,rb2
+			ld				rd4,mar1:r3:2,0					; pointer mask
+			ld				rd5,mar1:r3:3,0					; channel size
+			lid				r2:w0,1
+			addsx			rd4,rd4:rb2
+			lid				r6:w0,3
+			csli			rd5,rd5:2
+			and				rd5,rd5:rd6
+			lsl				rd4,rd4:r5
+			lsri			rd4,rd4:5						; upper limit
+			xor				rq5,rq5:rq5
+			lid				r6:w0,8
+			st				mar1:r6:0,6,rd5
+			st				mar1:r6:0,6,rd5
+			st				mar1:r6:0,6,rd5
+			st				mar1:r6:0,6,rd4
+			memalloc		r15
+			lid				r2:w0,4
+			st				mar0:r2:0,2,rd0
+			endmsg
+
+;--------------------------------------------------------------------------------------------------
+;			Setup interrupt handler
+;	input
+; 0 - interrupt number
+; 2 - export table number if 0FFFFh - then remove current handler and free interrupt line
+; 4 - return code:
+;		0 - all OK
+;		1 - invalid interrupt number
+;		2 - interrupt busy by another process
+;		3 - invalid export table number or export table entry
+;		4 - no free entry in the interrupt table
+;
+ServiceInterrupt:
+			lid				r8:w0,0
+			lid				r9:w0,0
+			ld				rw8,mar0:r4:0,4					; interrupt number
+			ld				rw9,mar0:r4:0,4					; export table number
+			lid				r10:w0,-16
+			addsx			rw10,rw10:rw8
+			jc				r10:sf,displacement SInt0
+			lid				r0:w0,1
+			st				mar0:r0:0,0,rb0
+			endmsg
+; if valid interrupt line number
+SInt0:
+			lid				r0:w0,IOSelector				; MAR1 - IO registers block
+			lar				ar3,r0
+			lid				r2:w0,60h
+			ld				rw0,mar1:r2:0,2					; read interrupt mask
+			lid				r1:w0,1
+			lsl				rw1,rw1:r8
+			and				rw10,rw0:rw1
+; if interrupt enabled then check the handler
+			lia				ar2:w0,40h
+			copyzx			rq3,rw8
+			lsli			rw3,rw3:1
+			lid				r4:w0,0
+			ld				rw4,mar1:r3:0,3					; read the interrupt table index from controller
+			lsli			rw4,rw4:3
+			lia				ar5:w0,INTSelector				; MAR2 - pointer to the interrupt table
+			lar				ar4,r4
+			ld				rd6,mar2:r0:0,0					; read PSO selector of interrupt handler
+			lia				ar7:w0,SysSelector
+			lid				r2:w0,CPSR_Offset
+			ld				rd7,mar3:r2:0,2					; read current PSO selector
+			lid				r14:w0,1
+			or				rw14,rw14:rw14
+			or				rd6,rd6:rd6
+			jc				r10:zf,displacement SInt1
+			jc				r6:zf,displacement SInt1
+			xor				rd14,rd6:rd7
+			jc				r14:zf,displacement SInt1
+			lid				r0:w0,2
+			st				mar0:r0:0,0,rb0
+			endmsg
+; if interrupt can be used
+SInt1:
+			lid				r11:w0,1
+			addsx			rw11,rw11:rw9
+			jc				r11:zf,displacement SIntDelete
+; if need to set interrupt
+			lar				ar7,r7							; MAR3 - pointer to the current PSO
+			lid				r2:w0,ExportTableCount_PSO_position
+			ld				rd3,mar3:r2:0,2
+			neg				rq3,rd3
+			addsx			rw3,rw3:rw9
+			jc				r3:sf,displacement SInt2
+			lid				r0:w0,3
+			st				mar0:r0:0,0,rb0
+			endmsg
+SInt2:
+			lid				r2:w0,ExportTableOffset_PSO_position
+			ld				rd4,mar3:r2:0,2					; read offset of the export table
+			copyzx			rq15,rw9
+			lsli			rd15,rd15:3
+			addsx			rd4,rd4:rd15
+			lar				ar6,r4
+			ld				rb0,mar3:r3:7,0					; read control byte
+			lid				r2:w0,0Ch
+			and				rb0,rb0:rb2
+			jc				r0:zf,displacement SInt3
+			lid				r0:w0,3
+			st				mar0:r0:0,0,rb0
+			endmsg
+; if valid entry in the export table then search free entry in the interrupt table
+SInt3:
+			jc				r14:zf,displacement SIntReplace	; if old interrupt should be replaced
+			lia				ar4:w0,8
+			lid				r10:w0,15
+SInt4:
+			ld				rq2,mar2:r4:0,4
+			or				rq2,rq2:rq2
+			jc				r2:zf,displacement SInt5
+			loop			r10,displacement SInt4
+			lid				r0:w0,4
+			st				mar0:r0:0,0,rb0
+			endmsg
+; if all is OK then set the entry and enable interrupt
+SInt5:
+			lid				r6:w0,-8
+			st				mar2:r6:0,6,rd7					; setup PSO
+			st				mar2:r6:0,6,rd9					; export table entry
+			lid				r2:w0,-16
+			sar				r0,ar4
+			addsx			rq0,rq0:rw2
+			lsri			rd0,rd0:3						; R0 - index of interrupt table entry
+			copyzx			rq3,rw8
+			lsli			rq3,rq3:1
+			st				mar1:r3:0,3,rw0					; set the vector in the interrupt controller
+; enable interrupt
+SInt6:
+			lid				r2:w0,62h
+			st				mar1:r2:0,2,rw1					; enable interrupt
+			lid				r0:w0,0
+			st				mar0:r0:0,0,rb0
+			endmsg
+;
+;	free interrupt line
+;
+SIntDelete:
+			lid				r2:w0,60h
+			ld				rw0,mar1:r2:0,2					; read interrupt mask
+			lid				r1:w0,1
+			lsl				rw1,rw1:r8
+			and				rw0,rw0:rw1
+			jnc				r0:zf,displacement SIntD1
+			lid				r0:w0,0
+			st				mar0:r0:0,0,rb0
+			endmsg			
+SIntD1:
+			lid				r2:w0,60h
+			st				mar1:r2:0,2,rw1					; disable interrupt
+			lia				ar2:w0,40h
+			copyzx			rq3,rw8
+			lsli			rq3,rq3:1
+			lid				r2:w0,0
+			lid				r6:w0,0
+			ld				rw2,mar1:r3:0,3					; read the interrupt table index from controller
+			st				mar1:r3:0,3,rw6					; reset interrupt index
+			lia				ar5:w0,INTSelector				; MAR2 - pointer to the interrupt table
+			lsli			rq2,rw2:3
+			lid				r0:w0,0
+			st				mar2:r2:0,2,rq0					; clear table entry
+			st				mar0:r0:0,0,rb0
+			endmsg
+;
+; 	Replace old interrupt
+;
+SIntReplace:
+			st				mar2:r4:0,4,rd7						; setup PSO
+			st				mar2:r4:0,4,rd9						; export table entry
+			jumpi			displacement SInt6
+			
+;--------------------------------------------------------------------------------------------------
+;			Get files catalog
+;	output
+; selector to the catalog block
+;
+ServiceCatalog:
+; check Flash ready
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r6:w0,5
+			lid				r2:w0,2
+			st				mar0:r2:0,2,rb6
+			lia				ar1:w0,FlashDataSelector
+			lid				r2:w0,0
+SGC0:
+			ld				rb6,mar0:r2:0,2
+			lsri			rb6,rb6:1
+			jc				r6:df,Displacement SGC0
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r2:w0,2
+			lid				r6:w0,0bh								; read instruction
+			st				mar0:r2:0,2,rb6
+			lia				ar1:w0,FlashDataSelector
+			lid				r1:w0,1000h
+			lar				ar0,r1
+			lid				r4:w0,0
+			lid				r2:w0,4095
+			lid				r6:w0,1
+; calculate count of the file entries
+SGC1:
+			ld				rw0,mar0:r1:0,1
+			or				rw0,rw0:rw0
+			jnc				r0:zf,Displacement SGC2
+			addsx			rq4,rq4:rb6
+SGC2:
+			loop			r2,Displacement SGC1
+			or				rd0,rd4:rd4
+			jc				r0:zf,displacement SGC6
+; if valid entry present
+			copyzx			rq15,rd4						; copy entries count
+			lsli			rq4,rq4:34
+			memalloc		r4
+			or				rd0,rd4:rd4
+			jc				r0:zf,displacement SGC6
+; if memory block allocated
+			lar				ar3,r4
+			lid				r6:w0,0
+			lid				r7:w0,80h
+			lar				ar0,r1
+			lid				r2:w0,4095
+			lid				r3:w0,32
+SGC3:
+			sar				r5,ar0
+			ld				rw0,mar0:r1:0,1
+			or				rw0,rw0:rw0
+			jc				r0:zf,displacement SGC4
+			loop			r2,displacement SGC3
+			lsl				rq15,rq15:r3
+			or				rq0,rd4:rq15
+			jumpi			displacement SGC6
+SGC4:
+			addzx			rq0,rq5:rb3
+			lar				ar0,r0							; pointer to the filename
+			lia				ar2:w0,0						; pointer to the destination buffer
+SGC5:
+			ld				rb0,mar0:r4:0,4
+			or				rb0,rb0:rb0
+			st				mar1:r6:0,6,rb0
+			jnc				r0:zf,displacement SGC5
+			addzx			rq0,rq5:rw1
+			lar				ar0,r0
+			addzx			rq6,rq6:rw7
+			loop			r2,displacement SGC3
+			
+			lsl				rq15,rq15:r3
+			or				rq0,rd4:rq15
+; R0 - selector and entry count 
+SGC6:
+			calli			displacement GetParamPointer
+			st				mar1:r0:0,0,rq0					; store return information
+			endmsg
+
+;--------------------------------------------------------------------------------------------------
+;			File read
+;	output
+; selector of the object
+;
+ServiceFileRead:
+			lid				r1:w0,0FFffh
+			lid				r1:w1,0ffh
+			getpar			r0
+			and				rq0,rd0:rq1
+			jc				r0:zf,displacement SRFNotRead	; if no file readed
+; if object with a filename present
+			lar				ar7,r0
+			lia				ar6:w0,0
+			lid				r0:w0,2
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r6:w0,0bh						; read instruction
+			st				mar0:r0:0,2,rb6
+			lia				ar1:w0,FlashDataSelector
+			lia				ar0:w0,0
+			lid				r1:w0,1000h
+			lid				r3:w0,1000h
+SRF2:
+			sar				r4,ar0							; store pointer to file table
+			ld				rw0,mar0:r1:0,1					; lower link index of data block
+			or				rw0,rw0:rw0
+			jc				r0:zf,Displacement SRF3
+			loop			r3,Displacement SRF2
+; if file not found
+			jumpi			displacement SRFNotRead
+; if first block found
+SRF3:
+			sar				r5,ar0
+			lid				r0:w0,32						; offset to the first byte of filename
+			addzx			rq0,rw0:rq4
+			lar				ar0,r0
+			sar				r6,ar6							; store start of filename
+SRF4:
+			ld				rb0,mar0:r3:0,4					; byte from file catalog
+			ld				rb8,mar3:r3:0,4					; byte from filename
+			xor				rb7,rb0:rb8
+			jnc				r7:zf,Displacement SRF5
+			or				rb7,rb0:rb8
+			jnc				r7:zf,Displacement SRF4
+; if file find
+			jumpi			Displacement SRFFilePresent
+; if filenames not matched
+SRF5:
+			lar				ar0,r5							; restore pointer to the FAT
+			lar				ar6,r6							; restore pointer to the filename
+			loop			r3,Displacement SRF2
+			
+SRFNotRead:
+			lid				r0:w0,0
+SRFEnd:
+			calli			displacement GetParamPointer
+			st				mar1:r6:0,0,rq0					; store return information
+			endmsg
+			
+; if file present then read the length of file and allocate block
+SRFFilePresent:
+			lar				ar0,r4							; restore pointer to the FAT record
+			lid				r0:w0,8							; file length position
+			addzx			rq0,rb0:rd4
+			ld				rd3,mar0:r0:0,2
+			copyzx			rq15,rd3						; copy length of data
+			copyzx			rq14,rd3						; copy length of data
+			lsri			rq15,rq15:3						; size in qwords
+			lsli			rq3,rq3:32-5
+			memalloc		r3
+			or				rd3,rd3:rd3
+			jc				r3:zf,Displacement SRFNotRead
+; if memory block allocated
+			lar				ar3,r3
+			lia				ar2:w0,0
+			lia				ar5:w0,IOSelector
+			lia				ar4:w0,18h
+; calculate CRC for file header
+			lid				r3:w0,0FFFFh
+			st				mar2:r6:0,0,rd3
+			lid				r0:w0,4
+			addzx			rq0,rb0:rd4
+			lar				ar0,r0							; pointer to buffer
+			lid				r3:w0,31
+			lia				ar4:w0,1Ch
+			ld				rd8,mar0:r3:0,4					; CRC
+SRF7:
+			ld				rq0,mar0:r3:0,4
+			st				mar2:r6:0,0,rb0					;0
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;1
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;2
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;3
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;4
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;5
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;6
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;7
+			loop			r3,Displacement SRF7
+; check Flash ready
+			lia				ar9:w0,FlashCtrlSelector
+			lid				r6:w0,5
+			lid				r0:w0,2
+			st				mar4:r0:0,2,rb6
+			lia				ar9:w0,FlashDataSelector
+			lid				r0:w0,0
+SRF8:
+			ld				rb6,mar4:r0:0,2
+			lsri			rb6,rb6:1
+			jc				r6:df,Displacement SRF8
+			lia				ar9:w0,FlashCtrlSelector
+			lid				r0:w0,2
+			lid				r6:w0,0bh						; read instruction
+			st				mar4:r0:0,2,rb6
+			lia				ar9:w0,FlashDataSelector
+; transfer data from flash to the object and calculate CRC for data
+			copyzx			rq0,rd4
+			lid				r3:w0,100h
+			addzx			rd0,rd0:rw3						; address of first data byte
+			lar				ar8,r0
+			lid				r3:w0,480
+			lid				r6:w0,-480
+			addsx			rd0,rd15:rw6
+			jc				r0:cf,Displacement SRF9
+			copysx			rq3,rd15						; if length less than first flash data block
+SRF9:
+			copyzx			rq6,rd3
+			neg				rq6,rq6
+			addsx			rq15,rq15:rq6					; decrease data count
+SRF10:
+			ld				rq0,mar4:r3:0,4
+			st				mar1:r3:0,4,rq0
+			st				mar2:r6:0,0,rb0					;0
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;1
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;2
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;3
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;4
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;5
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;6
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;7
+			loop			r3,Displacement SRF10
+			lia				ar4:w0,18h
+			ld				rd0,mar2:r6:0,0					; CRC result
+			xor				rd0,rd0:rd8
+			jc				r0:zf,Displacement SRF11
+; if CRC not equal
+SRFCRCError:
+			sar				r0,ar3
+			memalloc		r0
+			jumpi			displacement SRFNotRead
+; cycle read data
+SRF11:
+			or				rd15,rd15:rd15
+			jnc				r15:zf,Displacement SRF12
+; if File readed
+			sar				r1,ar3
+			lsli			rq14,rq14:32
+			or				rq0,rq14:rq1
+			jumpi			displacement SRFEnd
+; prepare to read next block. Read link index and CRC from flash
+SRF12:
+			lid				r0:w0,2
+			addzx			rd4,rb0:rd4
+			lar				ar0,r4
+			lid				r4:w0,0
+			ld				rw4,mar0:r6:0,0					; read upper link index from FAT
+			lsli			rq4,rq4:12						; address to the next position in FAT
+			copyzx			rq0,rd4
+			lid				r6:w0,4
+			addzx			rq0,rq0:rb6						; address to CRC
+			lar				ar8,r0
+			ld				rd8,mar4:r3:0,4					; reading CRC
+; setting CRC calculator
+			lia				ar4:w0,18h
+			lid				r3:w0,0FFh
+			st				mar2:r6:0,0,rd3
+			lia				ar4:w0,1Ch
+; calculate length of readed data
+			lid				r3:w0,511
+			copyzx			rq6,rw3
+			neg				rq6,rq6
+			addsx			rd7,rd15:rd6
+			jc				r7:cf,Displacement SRF13
+			copyzx			rq3,rd15
+SRF13:
+			copyzx			rq6,rd3
+			neg				rq6,rq6
+			addsx			rd15,rd15:rd6					; decrease data count
+SRF14:
+			ld				rq0,mar4:r3:0,4
+			st				mar1:r3:0,4,rq0
+			st				mar2:r6:0,0,rb0					;0
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;1
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;2
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;3
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;4
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;5
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;6
+			lsri			rq0,rq0:8
+			st				mar2:r6:0,0,rb0					;7
+			loop			r3,Displacement SRF14
+			lia				ar4:w0,18h
+			ld				rd0,mar2:r6:0,0					; CRC result
+			xor				rd0,rd0:rd8
+			jnc				r0:zf,Displacement SRFCRCError
+			jumpi			Displacement SRF11
+
+;--------------------------------------------------------------------------------------------------
+;			File write
+;	input
+; 0 - object selector
+; 4 - operation result
+;		0 - all OK
+;		1 - file exist
+;		2 - no free space
+; 8 - filename up to 220 bytes
+;
+ServiceFileWrite:
+;
+; 1 check the catalog object if no catalog then create him
+; 2 check filename
+; 3 check available size
+; 4 create and write header
+; 5 write raw data
+;
+; read object selector
+			lid				r13:w0,0
+			lar				ar7,r1							; MAR3 - pointer to the object with parameters
+			lar				ar11,r1							; MAR5 - pointer to the object with parameters
+			lia				ar6:w0,0
+			lia				ar10:w0,0
+			ld				rd0,mar5:r0:0,0					; object selector
+			lar				ar5,r0							; MAR2 - pointer to the object
+; check Flash ready
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r6:w0,5
+			lid				r0:w0,2
+			st				mar0:r0:0,2,rb6
+			lia				ar1:w0,FlashDataSelector
+			lia				ar0:w0,0
+SWF0:
+			ld				rb6,mar0:r0:0,2
+			lsri			rb6,rb6:1
+			jc				r6:df,Displacement SWF0
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r0:w0,2
+			lid				r6:w0,0bh						; read instruction
+			st				mar0:r0:0,2,rb6
+			lia				ar1:w0,FlashDataSelector		; MAR0 - pointer to the catalog object
+			lia				ar3:w0,FlashDataSelector		; MAR1 - copy of pointer for compare filename
+			lid				r1:w0,1000h						; R1=4096 for increment address
+			lid				r2:w0,0
+			lar				ar0,r1							; start from 1000h
+			lid				r3:w0,1							; constant 1
+			lid				r0:w0,4095						; number of entries LOOP counter
+; scanning file table
+SWF2:
+			sar				r4,ar0
+			ld				rd5,mar0:r1:0,1
+			addzx			rd6,rd5:rb3
+			jnc				r6:zf,Displacement SWF3
+; if empty block found
+			addzx			rw2,rw2:rw3
+SWF210:
+			loop			r0,Displacement SWF2
+			jumpi			Displacement SWFNoFileExists
+; if non-empty entry
+SWF3:
+			lsli			rd5,rd5:16
+			jnc				r5:zf,Displacement SWF210
+; if start entry found checkin filename
+			lid				r6:w0,32
+			addzx			rd4,rw6:rd4								; offset to the filename
+			lar				ar2,r4
+			lia				ar6:w0,8
+SWF4:
+			ld				rb5,mar1:r5:0,4
+			ld				rb6,mar3:r5:0,4
+			xor				rb7,rb5:rb6
+			jnc				r7:zf,Displacement SWF5
+			or				rb5,rb5:rb6
+			jc				r5:zf,Displacement SWFFileExists
+			jumpi			Displacement SWF4
+; if strings not equal
+SWF5:
+			loop			r0,Displacement SWF2
+			jumpi			Displacement SWFNoFileExists
+; if File exists
+SWFFileExists:
+			lid				r2:w0,4
+			lid				r0:w0,1
+			st				mar5:r2:0,2,rb0
+			endmsg
+; if no file exists then checkin available size and object size. R2 - count of free blocks
+SWFNoFileExists:
+			sar				r0,ar5
+			calli			displacement GetObjectSize		; calculate object size in 32-byte paragraphs
+			copyzx			rq15,rd0						; R15 copy of object length
+			lsli			rd15,rd15:3
+			lid				r4:w0,8
+			addzx			rq0,rq0:rb4
+			lsri			rd0,rd0:7
+			addzx			rd0,rd0:rb3						; length in 4096 blocks
+			neg				rq0,rd0
+			addzx			rd4,rd2:rd0
+			jc      		r4:cf,Displacement SWFSizeOK
+			lid				r2:w0,4
+			lid				r0:w0,2
+			st				mar5:r2:0,2,rb0
+			endmsg
+; if free Size is good for file then seek first free sector
+; registers assignment
+; R15 - length of the object (rest of) in dwords
+; R1 - constant 4096 for seek free sectors
+;		create file header and first file block
+; R3 - constant 1
+SWFSizeOK:
+			lia				ar4:w0,0						; MAR2 pointer to object data
+			lar 			ar0,r1							; MAR0 pointer to object catalog
+			lia				ar2:w0,0						; reset pointer to the write buffer
+			lia				ar3:w0,FlashWBSelector			; MAR1 pointer to flash write buffer
+			calli			displacement SetWriteEnable		; turn ON write enable bit
+			lid				r0:w0,2
+			st				mar1:r0:0,4,rb0					; page program instruction
+; search free block
+SWF7:
+			sar				r4,ar0							; store pointer
+			ld				rd0,mar0:r1:0,1
+			addzx			rd0,rd0:rb3
+			jnc				r0:zf,Displacement SWF7
+; R4 - address of the first block find free block check object length
+			lid				r5:w0,0
+			lid				r0:w0,-960						; maximum length of the object, which can be saved into first block
+			addsx			rd0,rd15:rd0
+			jnc				r0:cf,Displacement SWF9			; go, if file can be saved into one block
+; if need to find next free block
+SWF8:
+			sar				r5,ar0
+			ld				rd0,mar0:r1:0,1
+			addzx			rd0,rd0:rb3
+			jnc				r0:zf,Displacement SWF8
+; R4 - pointer to the first block, R5 - pointer to the next block
+SWF9:
+			copyzx			rq0,rd4							; set page address
+			lsli			rd0,rd0:8						; convert to 24 bit address
+			csli			rd0,rd0:8
+			st				mar1:r0:0,4,rb0					; high address byte
+			csli			rd0,rd0:8
+			st				mar1:r0:0,4,rb0					; medium byte
+			lid				r0:w0,0
+			st				mar1:r0:0,4,rb0					; low byte
+			st				mar1:r0:0,4,rw0					; lower link index for first block
+			copyzx			rq0,rq5
+			lsri			rq0,rq0:12						; upper link idex
+			st				mar1:r0:0,4,rw0
+; position for CRC code
+			lid				r0:w0,0FFFFh
+			st				mar1:r0:0,4,rd0
+; set the file length
+			copyzx			rq0,rd15
+			lsli			rd0,rd0:2
+			st				mar1:r0:0,4,rd0
+			lid				r0:w0,0
+			st				mar1:r0:0,4,rb0
+; atribute byte
+			lid				r0:w0,0FFFFh
+			st				mar1:r0:0,4,rb0
+; set timestamp
+			st				mar1:r0:0,4,rw0
+			st				mar1:r0:0,4,rd0
+			st				mar1:r0:0,4,rd0
+			st				mar1:r0:0,4,rw0
+; reserved 6 bytes
+			st				mar1:r0:0,4,rw0
+			st				mar1:r0:0,4,rw0
+			st				mar1:r0:0,4,rw0
+			lia				ar6:w0,8
+; copy filename
+SWF10:
+			ld				rb0,mar3:r0:0,4
+			st				mar1:r0:0,4,rb0
+			or				rb0,rb0:rb0
+			jnc				r0:zf,Displacement SWF10
+; fill rest of page by code 0FFh
+			sar				r6,ar2
+			lid				r0:w0,260
+			neg				rq6,rq6
+			addzx			rq6,rw0:rq6
+			lid				r0:w0,0FFFFh
+SWF11:
+			st				mar1:r0:0,4,rb0
+			loop			r6,Displacement SWF11
+		
+; calculate CRC for first block
+			lia				ar7:w0,IOSelector				; MAR3 - IO registers
+			lia				ar6:w0,18h
+			lar				ar6,r6
+			st				mar3:r0:0,4,rd0					; initial state of the CRC and promote pointer to data entrance
+			lia				ar2:w0,12						; offset first byte
+			lid				r0:w0,256-8						; count of bytes
+SWF12:
+			ld				rb6,mar1:r0:0,4
+			st				mar3:r6:0,0,rb6
+			loop			r0,Displacement SWF12
+; calculate CRC of data
+			lid				r7:w0,960
+			neg				rq6,rw7
+			addsx			rd0,rd15:rd6
+			jc				r0:cf,Displacement SWF13
+; if length less than 960 dwords
+			copyzx			rq7,rd15
+SWF13:
+			sar				r8,ar4							; store source offset
+			lsri			rq6,rd7:1						; count of qwords
+SWF14:
+			ld				rq0,mar2:r0:0,4
+			st				mar3:r6:0,0,rb0					; 0
+			lsri			rq0,rq0:8
+			st				mar3:r6:0,0,rb0					; 1
+			lsri			rq0,rq0:8
+			st				mar3:r6:0,0,rb0					; 2
+			lsri			rq0,rq0:8
+			st				mar3:r6:0,0,rb0					; 3
+			lsri			rq0,rq0:8
+			st				mar3:r6:0,0,rb0					; 4
+			lsri			rq0,rq0:8
+			st				mar3:r6:0,0,rb0					; 5
+			lsri			rq0,rq0:8
+			st				mar3:r6:0,0,rb0					; 6
+			lsri			rq0,rq0:8
+			st				mar3:r6:0,0,rb0					; 7
+			loop			r6,Displacement SWF14
+			lar				ar4,r8							; restore source offset
+			lia				ar6:w0,18h
+			ld				rd6,mar3:r6:0,0					; read calculated CRC
+			lia				ar2:w0,8
+			st				mar1:r6:0,0,rd6					; store CRC
+			copyzx			rq9,rq4							; copy of block
+; transfer data to the flash
+			lid				r6:w0,260
+			lia				ar9:w0,FlashCtrlSelector		; MAR4 - pointer to the flash control register 1000000h
+			lia				ar8:w0,0
+			st				mar4:r6:0,0,rw6					; write file header
+			lid				r0:w0,100h
+			addzx			rq4,rq4:rw0						; address for write data
+			copyzx			rq8,rd7
+			calli			displacement WriteRestOfBlock
+			neg				rq7,rd8
+			addsx			rd15,rd15:rd7
+; cycle for write all next data
+SWFBlockCycle:
+			jnc				r15:zf,Displacement SWF16
+; if all data was writen
+			jumpi			Displacement SWFWriteOK
+; if data present
+SWF16:
+			copyzx			rq4,rq5
+			addzx			rq5,rq5:rw1
+			lar				ar0,r5
+			lid				r5:w0,0
+			copyzx			rq7,rd15
+			lid				r0:w0,-1022						; dwords, which can be saved into regular block
+			addsx			rq0,rd15:rw0
+			jc				r0:cf,Displacement SWF170
+			jumpi			Displacement SWF18				; go, if file can be saved into one block
+; if need to find next free block check ready
+SWF170:
+			lia				ar8:w0,2
+			lid				r6:w0,05h
+			st				mar4:r6:0,0,rb6
+			lia				ar7:w0,FlashDataSelector
+			lia				ar6:0,0
+SWF171:
+			ld				rb0,mar3:r6:0,0
+			lsri			rb0,rb0:1
+			jc				r0:df,displacement SWF171
+			lid				r6:w0,0bh						; read instruction
+			st				mar4:r6:0,0,rb6
+SWF17:
+			sar				r5,ar0
+			ld				rd0,mar0:r1:0,1
+			addzx			rq0,rd0:rb3
+			jnc				r0:zf,Displacement SWF17
+			lid				r7:w0,1022
+; R4 - pointer to the current block, R5 - pointer to the next block create header of the first page R9 - pointer to the previous block
+SWF18:
+; wait for ready
+			lia				ar8:w0,2
+			lid				r6:w0,05h
+			st				mar4:r6:0,0,rb6
+			lia				ar7:w0,FlashDataSelector
+			lia				ar6:w0,0
+SWF181:
+			ld				rb0,mar3:r6:0,0
+			lsri			rb0,rb0:1
+			jc				r0:df,displacement SWF181
+; if flash ready
+			calli			displacement SetWriteEnable
+			lia				ar2:w0,0
+			lid				r0:w0,2
+			st				mar1:r0:0,4,rb0
+			copyzx			rq0,rd4							; set page address
+			lar				ar0,r4
+			lsli			rd0,rd0:8						; convert to 24 bit address
+			csli			rd0,rd0:8
+			st				mar1:r0:0,4,rb0					; high address byte
+			csli			rd0,rd0:8
+			st				mar1:r0:0,4,rb0					; medium byte
+			lid				r0:w0,0
+			st				mar1:r0:0,4,rb0					; low byte
+; 
+			copyzx			rq0,rd9
+			lsri			rq0,rq0:12
+			st				mar1:r0:0,4,rw0					; lower link index for first block
+			copyzx			rq0,rd5
+			lsri			rq0,rq0:12						; upper link idex
+			st				mar1:r0:0,4,rw0
+; calculate CRC for block
+			lia				ar7:w0,IOSelector
+			lia				ar6:w0,18h
+			lid				r0:w0,0FFFFh
+			st				mar3:r0:0,4,rd0					; initial CRC value and increment pointer to the data register
+			sar				r8,ar4							; start address of data
+			copyzx			rq6,rw7
+SWF20:
+			ld				rd0,mar2:r0:0,4
+			st				mar3:r6:0,0,rb0					;0
+			lsri			rd0,rd0:8
+			st				mar3:r6:0,0,rb0					;1
+			lsri			rd0,rd0:8
+			st				mar3:r6:0,0,rb0					;2
+			lsri			rd0,rd0:8
+			st				mar3:r6:0,0,rb0					;3
+			loop			r6,Displacement SWF20
+			lar				ar4,r8							; restore start address
+			lia				ar6:w0,18h
+			ld				rd6,mar3:r6:0,0					; read calculated CRC
+			st				mar1:r0:0,4,rd6					; set CRC into header
+; copy data to the buffer
+			lid				r6:w0,62
+			neg				rq0,rw6
+			addsx			rq0,rw7:rq0
+			jc				r0:cf,Displacement SWF21
+			copyzx			rq6,rw7
+SWF21:
+			copyzx			rq8,rw6
+SWF22:
+			ld				rd0,mar2:r0:0,4
+			st				mar1:r0:0,4,rd0
+			loop			r6,Displacement SWF22
+; send write command
+			lid				r6:w0,260
+			lia				ar8:w0,0
+			st				mar4:r6:0,0,rw6					; write file header
+; decrement R7
+			neg				rq8,rq8
+			addzx			rq7,rq7:rq8
+			addsx			rd15,rd15:rd8
+			copyzx			rq9,rd4
+			lid				r0:w0,100h
+			addzx			rd4,rd4:rw0						; address for write data
+			copyzx			rq8,rd7
+			calli			displacement WriteRestOfBlock
+			neg				rq8,rd8
+			addsx			rd15,rd15:rd8
+			jumpi			Displacement SWFBlockCycle
+		
+; end of write file
+SWFWriteOK:
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r6:w0,5
+			lid				r0:w0,2
+			st				mar0:r0:0,2,rb6
+			lia				ar1:w0,FlashDataSelector
+			lid				r0:w0,0
+; check Flash ready
+SWFWOK:
+			ld				rb6,mar0:r0:0,2
+			lsri			rb6,rb6:1
+			jc				r6:df,Displacement SWFWOK
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r0:w0,2
+			lid				r6:w0,0bh						; read instruction
+			st				mar0:r0:0,2,rb6
+			lid				r1:w0,4
+			lid				r0:w0,0
+			st				mar5:r1:0,2,rb0
+			endmsg
+
+;--------------------------------------------------------------------------------------------------
+;			Delete file
+;	input
+; 0 - status byte
+;		0 - all OK
+;		1 - file not found
+; 1 - filename up to 220 bytes
+ServiceDeleteFile:
+			lar				ar7,r1
+			lia				ar6:w0,1
+			lid				r13:w0,0
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r6:w0,5
+			lid				r2:w0,2
+			st				mar0:r2:0,2,rb6
+			lia				ar1:w0,FlashDataSelector
+			lid				r2:w0,0
+SDF1:
+			ld				rb6,mar0:r2:0,2
+			lsri			rb6,rb6:1
+			jc				r6:df,Displacement SDF1
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r2:w0,2
+			lid				r6:w0,0bh						; read instruction
+			st				mar0:r2:0,2,rb6
+			lia				ar1:w0,FlashDataSelector
+			lid				r3:w0,1000h
+			lia				ar0:w0,0
+			lia				ar2:w0,0
+			lia				ar4:w0,0
+			lia				ar8:w0,0
+			lid				r1:w0,1000h
+			lia				ar3:w0,FlashWBSelector
+			lia				ar5:w0,FlashCtrlSelector
+			lia				ar9:w0,FlashDataSelector
+SDF2:
+			sar				r4,ar0
+			ld				rw0,mar0:r1:0,1
+			or				rw0,rw0:rw0
+			jc				r0:zf,Displacement SDF3
+			loop			r3,Displacement SDF2
+; if no file
+			lid				r0:w0,1
+			jumpi			Displacement SDFMsgEnd
+; if first block find
+SDF3:
+			sar				r5,ar0
+			sar				r6,ar6
+			lid				r0:w0,32
+			addzx			rq0,rb0:rq4
+			lar				ar0,r0
+SDF4:
+			ld				rb0,mar0:r4:0,4
+			ld				rb2,mar3:r4:0,4
+			xor				rb7,rb0:rb2
+			jnc				r7:zf,Displacement SDF5
+			or				rb7,rb0:rb2
+			jnc				r7:zf,Displacement SDF4
+; if file present
+			jumpi			Displacement SDFPresent
+SDF5:
+			lar				ar0,r5
+			lar				ar6,r6
+			loop			r3,Displacement SDF2
+			lid				r0:w0,1
+SDFMsgEnd:
+			lid				r2:w0,0
+			st				mar3:r2:0,2,rb0
+			endmsg
+;
+;		if file present
+; R4 - pointer to the first block
+;
+SDFPresent:
+			lid				r3:w0,7fh
+SDF8:
+			nop
+			loop			r3,Displacement SDF8
+; checkin flash ready
+			lid				r0:w0,5
+			lid				r2:w0,2
+			st				mar2:r2:0,2,rb0
+SDF7:
+			ld				rb0,mar4:r0:0,0
+			lsri			rb0,rb0:1
+			jc				r0:df,Displacement SDF7
+			lid				r0:w0,0bh
+			st				mar2:r2:0,2,rb0
+; upper link index			
+			addzx			rq2,rw2:rq4
+			lid				r5:w0,0
+			ld				rw5,mar0:r2:0,2					; read upper link index
+; set write enable instruction
+			lia				ar2:w0,0
+			lia				ar4:w0,0
+			lid				r0:w0,06h
+			st				mar1:r0:0,0,rb0
+			lid				r0:w0,1
+			st				mar2:r0:0,0,rw0
+			ld				rb0,mar0:r0:0,0
+; set write instruction
+			lid				r0:w0,20h
+			st				mar1:r4:0,4,rb0
+			lsli			rq4,rq4:8
+			csli			rd4,rd4:8
+			st				mar1:r4:0,4,rb4
+			csli			rd4,rd4:8
+			st				mar1:r4:0,4,rb4
+			csli			rd4,rd4:8
+			st				mar1:r4:0,4,rb4
+			lid				r0:w0,4
+			st				mar2:r0:0,0,rw0
+; setting new page address
+			or				rw5,rw5:rw5
+			jc				r5:zf,Displacement SDF6
+			lsli			rd5,rd5:12
+			copyzx			rq4,rd5			
+			jumpi			Displacement SDFPresent
+SDF6:
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r6:w0,5
+			lid				r2:w0,2
+			st				mar0:r2:0,2,rb6
+			lia				ar1:w0,FlashDataSelector
+			lid				r2:w0,0
+; check Flash ready
+SDFOK:
+			ld				rb6,mar0:r2:0,2
+			lsri			rb6,rb6:1
+			jc				r6:df,Displacement DFOK
+			lia				ar1:w0,FlashCtrlSelector
+			lid				r2:w0,2
+			lid				r6:w0,0bh						; read instruction
+			st				mar0:r2:0,2,rb6
+			lid				r2:w0,0
+			st				mar3:r2:0,2,rb2
+			endmsg
+
+;--------------------------------------------------------------------------------------------------
+;			LED's output
+; R1 - LED value
+;
+ServiceLEDOutput:
+			lia				ar1:w0,IOSelector
+			lia				ar0:w0,0
+			st				mar0:r0:0,0,rw1
+			endmsg
+
+;--------------------------------------------------------------------------------------------------
+;			Output string to the UART
+; Word 0 - data type or data length. If 0 - ASCIIZ string, if <> 0 then data length
+; Byte 2 - first data byte
+;
+ServiceUART:
+			lia				ar3:w0,SysSelector
+			lia				ar2:w0,MPCR_Offset+3
+			lia				ar12:w0,Offset CmdStates shl 2
+SU0:
+			ld				rb0,mar1:r0:0,0
+			lid				r1:w0,7Fh
+			and				rb0,rb0:rb1
+			st				mar1:r0:0,0,rb0
+			lid				r2:w0,10h
+SU1:
+			nop
+			loop			r2,Displacement SU1
+; check the uart state
+			ld				rw3,mar6:r0:0,0
+			or				rw3,rw2:rw2
+			jc				r3:zf,Displacement SU2
+; if command receive\transmit state detected
+			lid				r1:w0,80h
+			or				rb0,rb0:r1
+			st				mar1:r0:0,0,rb0
+			sleep
+			jumpi			Displacement SU0
+; if UART accessible
+SU2:
+			lia				ar5:w0,IOSelector
+			lia				ar4:w0,UART_Offset
+			lid				r5:0,6								; offset to the transmit counter
+			ld				rw4,mar0:0:0,4						; read length of data
+			or				rw4,rw4:rw4
+			jc				r4:zf,Displacement SU_Ascii
+; if length determined directly
+SU3:
+			ld				rw6,mar2:r5:0,3
+			or				rw6,rw6:rw6
+			jnc				r6:zf,Displacement SU3
+; check the data length
+			lid				r7:w0,180h
+			copyzx			rq9,rw4								; copy all the length
+			subzx			rw8,rw7:rw4
+			jnc				r8:sf,Displacement SU4
+			copyzx			rq9,rw7
+SU4:
+			subzx			rw4,rw4:rw9
+; transfer data
+SU5:
+			ld				rb8,mar0:r0:0,4
+			st				mar2:r0:0,0,rb8
+			loop			r9,Displacement SU5
+			or				rw4,rw4:rw4
+			jnc				r4:zf,Displacement SU3
+; end of procedure
+SUEnd:
+			lid				r1:w0,80h
+			or				rb0,rb0:rb1
+			st				mar1:r0:0,0,rb0
+			jumpi			1
+			lid				r1:w0,4
+SUE1:
+			ld				rb0,mar1:r0:0,0
+			and				rb0,rb0:rb1
+			jc				r0:zf,Displacement SUE1
+			endmsg
+; if transfer ASCII string
+SU_Ascii:
+			lid				r8:w0,0
+SU6:
+			ld				rw8,mar2:r5:0,3
+			lsri			rw8,rw8:8
+			jnc				r8:zf,Displacement SU6
+			ld				rb9,mar0:r0:0,4
+			or				rb9,rb9:rb9
+			jc				r9:zf,Displacement SUEnd
+			st				mar2:r0:0,0,rb9
+			jumpi			Displacement SU6

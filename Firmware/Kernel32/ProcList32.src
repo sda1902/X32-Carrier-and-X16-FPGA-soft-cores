@@ -1,0 +1,141 @@
+ProcessList:
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar3
+pusha	ar4
+pusha	ar5
+pusha	ar12
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r9
+pushd	r10
+;
+; MAR0 - pointer to the descriptor table
+;
+; amode
+;	R4=4
+;	R2=2
+;	R1=1
+;	R0=0
+			lia			ar1:w0,DTSelector
+			lia			ar0:w0,7							; offset to descriptor control byte
+			lid			r2:w0,Offset CmdStates shl 2
+			ld			rb0,mar6:r2:3,2
+			lsli		rd0,rd0:24
+			lid			r2:w0,EchoStreamSelector
+			or			rd2,rb2:rd0
+			jnc			r0:zf,Displacement PList00
+			lid			r2:w0,IOSelector
+PList00:
+			lar			ar3,r2
+			lia			ar2:w0,8
+			lia			ar5:w0,SysSelector
+			lid			r2:w0,4
+			lid			r4:w0,0
+			ld			rd4,mar2:r2:0,2
+			lsri		rd4,rd4:8
+			lid			r1:w0,32
+; R4 - DT counter
+PListCycle:
+			sar			r3,ar0								; store index
+			ld			rb0,mar0:r1:0,1						; reading control byte
+			lid			r2:w0,13h
+			and			rb0,rb0:rb2
+			lid			r2:w0,12h
+			xor			rb0,rb0:rb2
+			jc			r0:zf,Displacement PList1
+PList0:
+			loop		r4,Displacement PListCycle
+			lid			r2:w0,0
+			lid			r0:w0,Offset String1 shl 2
+			sar			r1,ar13
+			calli		Displacement IntToHex								; convert string
+			calli		Displacement OutString
+			lid			r0:w0,Offset CRString shl 2
+			calli		Displacement OutString
+popd	r10
+popd	r9
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+popa	ar12
+popa	ar5
+popa	ar4
+popa	ar3
+popa	ar2
+popa	ar1
+popa	ar0
+ret
+; if readable object in DT
+PList1:
+			copyzx		rq2,rd3
+			lid			r0:w0,17
+			addzx		rq2,rq2:rb0
+			ld			rd0,mar0:r2:0,2
+			or			rd0,rd0:rd0							; checkin parrent PSO selector
+			jc			r0:zf,displacement PList0
+			lid			r0:w0,5250h
+			lsri		rd3,rd3:5							; extracting selector
+			lar			ar5,r3
+			lid			r0:w1,434Fh
+			lid			r2:w0,0
+			lar			ar4,r2
+			lid			r0:w2,5345h
+			ld			rq3,mar2:r2:0,2
+			lid			r0:w3,53h
+			xor			rq0,rq0:rq3
+			jnc			r0:zf,Displacement PList0
+; if process object found
+			lid			r2:w0,48h
+			lid			r9:w0,0
+			ld			rd9,mar2:r2:0,2
+			lid			r0:w0,(Offset String1 shl 2)+17
+			copyzx		rq10,rw0
+			lar			ar12,r0
+; move name of object to the string
+			lia			ar4:w0,8
+PList2:
+			ld			rb0,mar2:r4:0,4
+			st			mar6:r4:0,4,rb0
+			or			rb0,rb0:rb0
+			jnc			r0:zf,displacement PList2
+			lid			r8:w0,36
+			sar			r0,ar12
+			subzx		rq0,rq0:rq10
+			addzx		rq2,rq0:rb8
+			lid			r0:w0,Offset String1 shl 2
+			lid			r1:w0,CodeSelector
+			calli		Displacement IntToHex								; convert string
+			lid			r8:w0,16
+			addzx		rq2,rw0:rb8
+			lid			r5:w0,20h
+			st			mar6:r2:0,2,rb5
+			calli		Displacement OutString								; out string with number of bytes and name of object
+			lid			r8:w0,20h
+			st			mar1:r0:0,0,rb8
+			sar			r2,ar5
+			calli		Displacement IntToHex								; convert string
+			calli		Displacement OutString
+			st			mar1:r0:0,0,rb8
+			copyzx		rq2,rd9
+			calli		Displacement IntToHex								; convert string
+			calli		Displacement OutString
+			lid			r0:w0,Offset CRString shl 2
+			calli		Displacement OutString
+			lid			r1:w0,32
+			jumpi		displacement PList0
+			

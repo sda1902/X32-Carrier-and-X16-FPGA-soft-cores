@@ -1,0 +1,69 @@
+;
+;		Delete Object command
+;
+DeleteObject:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pusha	ar1
+pusha	ar2
+pusha	ar3
+		calli		Displacement ReadHexParam
+		or			rq0,rq0:rq0
+		jnc			r0:zf,Displacement DO2
+; if no params entered
+DO1:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if selector entered
+DO2:
+		lid			r1:w0,-19
+		addsx		rw1,rw1:rw0
+		jc			r1:cf,Displacement DO3
+; if selector less than 13
+		jumpi		Displacement DO_CheckOwner
+; if object may be deleted
+DO3:
+		lia			ar3:w0,SysSelector
+		lid			r1:w0,CPSR_Offset
+		ld			rd1,mar1:r1:0,2
+		calli		displacement SetParentSelector
+		memalloc	r0
+		lia			ar1:w0,IOSelector
+		lid			r0:w0,(Offset CmdStates shl 2)+3
+		ld			rb1,mar6:r0:0,2
+		lsli		rd1,rd1:24
+		jc			r1:zf,Displacement DO4
+		lid			r0:w0,EchoStreamSelector
+		or			rd1,rd1:rd0
+		lar			ar1,r1
+DO4:
+		lid			r0:w0,8
+		lid			r1:w0,44h
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,4fh
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,0dh
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,0ah
+		st			mar0:r0:0,2,rb1
+		jumpi		Displacement DO1
+; if need to check owner
+DO_CheckOwner:
+		lia			ar3:w0,DTSelector
+		lia			ar2:w0,24					; pointer to the parent PSO
+		copyzx		rq3,rq0
+		lsli		rq3,rq3:5
+		ld			rd2,mar1:r3:0,3
+		or			rd2,rd2:rd2
+		jc			r2:zf,Displacement DO1
+		jumpi		Displacement DO3

@@ -1,0 +1,340 @@
+;
+;--------------------------------------------------------------------------------------------------
+;		Read Raw command
+; parameters:
+;	start address
+;	byte count, max count 256 bytes (if byte count not specified)
+;
+ReadRaw:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r9
+pushd	r10
+pushd	r11
+pushd	r12
+pushd	r13
+pushd	r14
+pushd	r15
+pusha	ar1
+pusha	ar2
+pusha	ar3
+;	checkin echo mode
+		lid			r2:w0,(Offset CmdStates shl 2)+3
+		ld			rb0,mar6:r2:0,2						; reading echo CPU number
+		or			rb0,rb0:rb0
+		jnc			r0:zf,Displacement RR_StreamMode
+; 		checkin transfer mode
+		ld			rb15,mar3:r0:0,0
+		lid			r0:w0,52h
+		xor			rb15,rb15:rb0
+		jnc			r15:zf,Displacement RR_start
+; if symbol 'R' present, exclude him from string
+		iar			ar6:1
+RR_start:
+		calli		Displacement ReadHexParam			; R0 returns HEX value. 
+		copyzx		rq1,rq0
+		lid			r0:w0,100h							; initial count value 256 bytes
+		ld			rb2,mar3:r2:0,4
+		or			rb2,rb2:rb2
+		jc			r2:zf,Displacement RR0
+; if second parameter present
+		calli		Displacement ReadDecParam
+; R0 - count, R1 - start address
+; setting the start address into special descriptor
+RR0:
+		lia			ar3:w0,DTSelector
+		lia			ar2:w0,ServiceSelector shl 5
+		lsri		rq3,rq1:5
+		st			mar1:r4:0,4,rd3				; 32 bits of base
+		lsri		rq3,rq3:32
+		lid			r5:w0,31
+		and			rq1,rq1:rb5
+		st			mar1:r4:0,4,rb3				; high byte of base address
+		lia			ar3:w0,ServiceSelector
+		lid			r5:w0,7					; constant 7
+		lar			ar2,r1						; rest of the start address
+		lia			ar0:w0,8					; UART data register
+		lid			r4:w0,0Eh					; UART TX Used
+		lid			r2:w0,52h
+		st			mar0:r2:0,0,rb2
+		st			mar0:r2:0,0,rb2
+RR00:
+		lid			r6:w0,0
+		lid			r7:w0,1
+		lid			r14:w0,01F3h
+		lid			r8:w0,0fh
+		lid			r11:w0,30h
+		lid			r12:w0,0C6h
+		jnc			r15:zf,Displacement RR1
+RR_Bin:
+		ld			rb1,mar1:r1:0,4
+		st			mar0:r2:0,0,rb1
+		loop		r0,Displacement RR_bin
+		jumpi		Displacement RR_End
+RR1:
+		ld			rw1,mar0:r4:0,2
+		subzx		rw1,rw1:rw14
+		jc			r1:cf,Displacement RR1
+		and			rb9,rb8:rb6
+		jnc			r9:zf,Displacement RR2
+; if need to new line
+		lid			r2:w0,0dh
+		st			mar0:r2:0,0,rb2
+		lid			r2:w0,0ah
+		st			mar0:r2:0,0,rb2
+RR2:
+		lid			r2:w0,20h
+		st			mar0:r2:0,0,rb2
+		ld			rb1,mar1:r1:0,4			; reading byte
+		
+		copyzx		rb2,rb1
+		and			rb1,rb1:rb8
+		or			rb1,rb1:rb11
+		lsri		rb2,rb2:4
+		or			rb2,rb2:rb11
+		addzx		rb13,rb2:rb12
+		jnc			r13:cf,Displacement RR3
+		addzx		rb2,rb2:rb5
+RR3:
+		addzx		rb13,rb1:rb12
+		jnc			r13:cf,Displacement RR4
+		addzx		rb1,rb1:rb5
+RR4:
+		st			mar0:r2:0,0,rb2
+		st			mar0:r2:0,0,rb1
+		addzx		rb6,rb6:rb7
+		loop		r0,Displacement RR1
+; cycle end
+		lid			r0:w0,8
+		lid			r3:w0,0dh
+		st			mar0:r0:0,2,rb3
+		lid			r1:w0,0Ah
+		st			mar0:r0:0,2,rb1
+RR_End:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r15
+popd	r14
+popd	r13
+popd	r12
+popd	r11
+popd	r10
+popd	r9
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+
+;	Output data to the stream
+RR_StreamMode:
+		lsli		rd0,rd0:24
+		lid			r1:w0,EchoStreamSelector
+		or			rd1,rd1:rd0
+		lar			ar1,r1
+; 		checkin transfer mode
+		ld			rb15,mar3:r0:0,0
+		lid			r0:w0,52h
+		xor			rb15,rb15:rb0
+		jnc			r15:zf,Displacement RRsm_start
+; if symbol 'R' present, exclude him from string
+		iar			ar6:1
+RRsm_start:
+		calli		Displacement ReadHexParam
+		copyzx		rq1,rq0
+		lid			r0:w0,0							; initial count value
+		ld			rb2,mar3:r2:0,4
+		lid			r0:w0,1
+		or			rb2,rb2:rb2
+		jc			r2:zf,Displacement RRsm0
+; if second parameter present
+		calli		Displacement ReadDecParam
+; R0 - count, R1 - start address
+; setting the start address into special descriptor
+RRsm0:
+		lia			ar3:w0,DTSelector
+		copyzx		rq3,rq1
+		lia			ar2:w0,ServiceSelector shl 5
+		lsri		rq3,rq3:5
+		st			mar1:r4:0,4,rd3					; 32 bits of base
+		lsri		rq3,rq3:32
+		lid			r5:w0,31
+		and			rq1,rq1:rb5
+		st			mar1:r4:0,4,rb3					; high byte of base address
+		lia			ar3:w0,ServiceSelector
+		lsri		rb5,rb5:2						; constant 7
+		lar			ar2,r1				; rest of the start address
+		lia			ar0:w0,0
+		lid			r2:w0,52h
+		st			mar0:r2:0,0,rb2
+		st			mar0:r2:0,0,rb2
+RRsm00:
+		lid			r6:w0,0
+		lid			r7:w0,1
+		lid			r8:w0,0fh
+		lid			r11:w0,30h
+		lid			r12:w0,0C6h
+		jnc			r15:zf,Displacement RRsm1
+RRsm_Bin:
+		ld			rb1,mar1:r1:0,4
+		st			mar0:r2:0,0,rb1
+		loop		r0,Displacement RRsm_bin
+		jumpi		Displacement RR_End
+RRsm1:
+		and			rb9,rb8:rb6
+		jnc			r9:zf,Displacement RRsm2
+; if need to new line
+		lid			r2:w0,0dh
+		st			mar0:r2:0,0,rb2
+		lid			r2:w0,0ah
+		st			mar0:r2:0,0,rb2
+RRsm2:
+		lid			r2:w0,20h
+		st			mar0:r2:0,0,rb2
+		ld			rb1,mar1:r1:0,4			; reading byte
+		
+		copyzx		rq2,rb1
+		and			rb1,rb1:rb8
+		or			rb1,rb1:rb11
+		lsri		rb2,rb2:4
+		or			rb2,rb2:rb11
+		addzx		rb13,rb2:rb12
+		jnc			r13:cf,Displacement RRsm3
+		addzx		rb2,rb2:rb5
+RRsm3:
+		addzx		rb13,rb1:rb12
+		jnc			r13:cf,Displacement RRsm4
+		addzx		rb1,rb1:rb5
+RRsm4:
+		st			mar0:r2:0,0,rb2
+		st			mar0:r2:0,0,rb1
+		addzx		rb6,rb6:rb7
+		loop		r0,Displacement RRsm1
+; cycle end
+		lid			r3:w0,0dh
+		st			mar0:r2:0,0,rb3
+		lid			r1:w0,0Ah
+		st			mar0:r2:0,0,rb1
+		jumpi		Displacement RR_End
+		
+;
+;--------------------------------------------------------------------------------------------------
+;		Read Object command
+;
+ReadObject:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r9
+pushd	r10
+pushd	r11
+pushd	r12
+pushd	r13
+pushd	r14
+pushd	r15
+pusha	ar1
+pusha	ar2
+pusha	ar3
+; 		checkin transfer mode
+		ld			rb15,mar3:r0:0,0
+		lid			r0:w0,52h
+		xor			rb15,rb15:rb0
+		jnc			r15:zf,Displacement RO_start
+; if symbol 'R' present, exclude him from string
+		iar			ar6:1
+RO_start:		
+		calli		Displacement ReadHexParam
+		or			rq0,rq0:rq0
+		jnc			r0:zf,Displacement RO2
+; if no params entered
+RO1:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r15
+popd	r14
+popd	r13
+popd	r12
+popd	r11
+popd	r10
+popd	r9
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if selector entered
+RO2:
+		copyzx		rq4,rd0								; selector to R4
+		ld			rb0,mar3:r1:0,4
+		or			rb0,rb0:rb0
+		jc			r0:zf,Displacement RO1
+; if space character and offset present
+RO3:
+		calli		Displacement ReadHexParam
+		copyzx		rq5,rd0								; R4-selector, R5-offset
+		ld			rb0,mar3:r1:0,4
+		or			rb0,rb0:rb0
+		jc			r0:zf,Displacement RO1
+; if length parameter present 
+RO4:
+		calli		Displacement ReadDecParam
+		copyzx		rq6,rd0								; R4-selector, R5-offset, R6-length
+		lid			r0:w0,(Offset CmdStates shl 2)+3
+		ld			rb2,mar6:r0:0,2
+		or			rb2,rb2:rb2
+		jnc			r2:zf,Displacement RO5
+; if UART mode
+		lid			r0:w0,8
+		lid			r1:w0,52h
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,4fh
+		st			mar0:r0:0,2,rb1
+		lar			ar2,r5
+		lar			ar3,r4
+		lid			r5:w0,7								; constant 7
+		lia			ar0:w0,8
+		lid			r4:w0,0Eh							; UART TX Used
+		copyzx		rq0,rd6
+		jumpi		Displacement RR00
+; if stream mode
+RO5:
+		lsli		rd2,rd2:24
+		lid			r1:w0,EchoStreamSelector
+		or			rd1,rd1:rd2
+		lar			ar1,r1
+		lid			r0:w0,0
+		lid			r1:w0,52h
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,4fh
+		st			mar0:r0:0,2,rb1
+		lar			ar2,r5
+		lar			ar3,r4
+		lid			r5:w0,7								; constant 7
+		lia			ar0:w0,0							; stream data register
+		copyzx		rq0,rd6
+		jumpi		Displacement RRsm00

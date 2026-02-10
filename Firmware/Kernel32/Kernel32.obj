@@ -1,0 +1,74 @@
+0 COREONE32
+	Iset
+	Owner: -1
+1 CORESET
+	Instructions
+	Owner: 0
+2 ISRC1
+	Field
+	Owner: 0
+3 ISRC2
+	Field
+	Owner: 0
+4 CTRLOFF
+	Field
+	Owner: 0
+5 OFFREG
+	Field
+	Owner: 0
+6 IDST
+	Field
+	Owner: 0
+7 FSRC1
+	Field
+	Owner: 0
+8 FSRC2
+	Field
+	Owner: 0
+9 FDST
+	Field
+	Owner: 0
+10 WORDNUMBER
+	Field
+	Owner: 0
+11 DATAIMMEDIATE
+	Field
+	Owner: 0
+12 SHIFTPARAMETER
+	Field
+	Owner: 0
+13 MOVDISPLACEMENT
+	Field
+	Owner: 0
+14 AMODE
+	Field
+	Owner: 0
+15 ADST
+	Field
+	Owner: 0
+16 ASRC
+	Field
+	Owner: 0
+17 CTRLMAR
+	Field
+	Owner: 0
+18 DATAMAR
+	Field
+	Owner: 0
+19 MAR
+	Field
+	Owner: 0
+20 CONDITION
+	Field
+	Owner: 0
+21 SHORTDISPLACEMENT
+	Field
+	Owner: 0
+22 LONGDISPLACEMENT
+	Field
+	Owner: 0
+23 KERNEL32
+	Object
+	Owner: -1
+	Instruction Set=COREONE32
+	Granularity=4

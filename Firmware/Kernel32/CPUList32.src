@@ -1,0 +1,98 @@
+;
+;	Get CPU list
+;
+CPUList:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pusha	ar1
+pusha	ar12
+; reset the CPU Flags
+			lid			r2:w0,MPCR_Offset
+			ld			rb7,mar2:r2:0,2
+			lia			ar12:w0,Offset CPUFlags shl 2
+			lid			r2:w0,0
+			st			mar6:r2:0,0,rq2
+			st			mar6:r2:1,0,rq2
+			st			mar6:r2:2,0,rq2
+			st			mar6:r2:3,0,rq2
+; initialize cycle
+			lid			r4:w0,1
+			copyzx		rq5,rb4								; start CPU number and constant +1
+			lid			r1:w0,DTSelector
+			lid			r6:w0,0								; start count of the cores that is found
+			or			rb7,rb7:rb7
+			jc			r7:zf,Displacement CPUL4
+; cycle
+CPUCycle:
+			lsli		rd0,rd4:24
+			or			rb0,rb0:rb1
+			lar			ar1,r0
+			ld			rb0,mar0:r2:0,2						; try to read byte from a distant object
+			jc			r0:nf,Displacement CPUL1
+; if CPU present then set the flag
+			addzx		rb6,rb6:rb5
+			lsri		rq3,rq4:3
+			lid			r0:w0,7
+			and			rb0,rb0:rb4
+			lsl			rq7,rq5:rb0
+			ld			rb0,mar6:r3:0,3
+			or			rb0,rb0:rb7
+			st			mar6:r3:0,3,rb0
+CPUL1:
+			addzx		rb4,rb4:rb5
+			jnc			r4:zf,Displacement CPUCycle
+; output results
+CPUL4:
+			lid			r0:w0,Offset String1 shl 2
+			sar			r1,ar13
+			copyzx		rq2,rb6
+			lsli		rq2,rq2:2
+			addzx		rq2,rq2:rb5
+			calli		Displacement IntToHex
+			calli		Displacement OutString
+			lid			r0:w0,Offset CRString shl 2
+			calli		Displacement OutString
+			copyzx		rq4,rb5							; start number of CPU
+; output cycle
+CPUL2:
+			lsri		rq3,rq4:3
+			lid			r0:w0,7
+			and			rb0,rb0:rb4
+			ld			rb2,mar6:r3:0,3
+			lsr			rb2,rb2:r0
+			and			rb2,rb2:rb5
+			jc			r2:zf,Displacement CPUL3
+; if core present
+			lid			r0:w0,Offset String1 shl 2
+			copyzx		rq2,rb4
+			calli		Displacement IntToHex
+			lid			r2:w0,14
+			addzx		rq0,rw0:rb2
+			calli		Displacement OutString
+			lid			r0:w0,Offset CRString shl 2
+			calli		Displacement OutString
+CPUL3:
+			addzx		rb4,rb4:rb5
+			jnc			r4:zf,Displacement CPUL2
+End_CPUList:
+popa	ar12
+popa	ar1
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; CPU flags
+		align 8
+CPUFlags:
+	qword 		0,0,0,0

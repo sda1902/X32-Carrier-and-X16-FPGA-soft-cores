@@ -1,0 +1,266 @@
+;
+;	Write raw command
+;
+WriteRaw:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r15
+pusha	ar1
+pusha	ar2
+pusha	ar3
+;		checkin UART or stream
+		lid			r2:w0,(Offset CmdStates shl 2)+3
+		ld			r0,mar6:r2:0,2						; reading echo CPU number
+		lsli		rd0,rd0:24
+		jc			r0:zf,Displacement WR00
+		lid			r1:w0,EchoStreamSelector
+		or			rd1,rb1:rd0
+		lar			ar1,r1
+; 		checkin transfer mode
+WR00:
+		ld			rb15,mar3:r0:0,0
+		lid			r0:w0,52h
+		xor			rb15,rb15:rb0
+		jnc			r15:zf,Displacement WR_start
+; if symbol 'R' present, exclude him from string
+		iar			ar6:1
+WR_start:
+		calli		Displacement ReadHexParam		; R0 returns HEX value. 
+		copyzx		rq1,rd0
+		lid			r0:w0,100h						; initial count value
+		ld			rb2,mar3:r2:0,4
+		or			rb2,rb2:rb2
+		jc			r2:zf,Displacement WR0
+; if second parameter present
+		calli		Displacement ReadDecParam
+; R0 - count, R1 - start address
+; setting the start address into special descriptor
+WR0:
+		lia			ar3:w0,DTSelector
+		copyzx		rq3,rd1
+		lia			ar2:w0,ServiceSelector shl 5
+		lsri		rq3,rq3:5
+		st			mar1:r4:0,4,rd3					; 32 bits of base
+		lid			r5:w0,31
+		lsri		rq3,rq3:32
+		and			rq5,rb1:rb5
+		st			mar1:r4:0,4,rb3					; high byte of base address
+		copyzx		rq6,rd0							; R5-offset, R6-length
+		lar			ar2,r5
+		lia			ar3:w0,ServiceSelector
+		lid			r0:w0,8
+		lid			r1:w0,57h
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,52h
+		st			mar0:r0:0,2,rb1
+		jumpi		Displacement WO10
+;
+;--------------------------------------------------------------------------------------------------
+;		Write Object command
+;
+WriteObject:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r15
+pusha	ar1
+pusha	ar2
+pusha	ar3
+;		checkin UART or stream
+		lid			r2:w0,(Offset CmdStates shl 2)+3
+		ld			rb0,mar6:r2:0,2						; reading echo CPU number
+		lsli		rd0,rd0:24
+		jc			r0:zf,Displacement WO00
+		lid			r1:w0,EchoStreamSelector
+		or			rd1,rd1:rd0
+		lar			ar1,r1
+; 		checkin transfer mode
+WO00:
+		ld			rb15,mar3:r0:0,0
+		lid			r0:w0,52h
+		xor			rb15,rb15:rb0
+		jnc			r15:zf,Displacement WO_start
+; if symbol 'R' present, exclude him from string
+		iar			ar6:1
+WO_start:		
+		calli		Displacement ReadHexParam
+		or			rd0,rd0:rd0
+		jnc			r0:zf,Displacement WO2
+; if no params entered
+WO1:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r15
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if selector entered
+WO2:
+		copyzx		rq4,rd0							; selector to R4
+		ld			rb0,mar3:r1:0,4
+		or			rb0,rb0:rb0
+		jc			r0:zf,Displacement WO1
+; if space character and offset present
+WO3:
+		calli		Displacement ReadHexParam
+		copyzx		rq5,rd0							; R4-selector, R5-offset
+		ld			rb0,mar3:r1:0,4
+		or			rb0,rb0:rb0
+		jc			r0:zf,Displacement WO1
+; if length parameter present then check the object limits
+WO4:
+		calli		Displacement ReadDecParam
+		copyzx		rq6,rd0							; R4-selector, R5-offset, R6-length
+		lar			ar2,r5
+		lar			ar3,r4
+		lid			r0:w0,8
+		lid			r1:w0,57h
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,4Fh
+		st			mar0:r0:0,2,rb1
+WO10:
+		lid			r1:w0,0dh
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,0ah
+		st			mar0:r0:0,2,rb1
+		lid			r4:w0,0D0h						; check spaces
+		lid			r5:w0,0C6h						; check symbols above 39h
+		lid			r7:w0,9							; value to correct
+		lid			r8:w0,0fh						; nibble mask
+		sar			r3,ar1
+		lsri		rq3,rq3:24
+		jnc			r3:zf,Displacement WOsmStart
+; if data will be read from UART
+WO5:
+		ld			rw1,mar0:r0:0,2					; reading UART port
+		lsri		rw2,rw1:9
+		jnc			r2:df,Displacement WO5
+; if value present
+		jnc			r15:zf,Displacement WO51
+; if RAW mode selected
+		copyzx		rb3,rb1
+		jumpi		Displacement WO9
+WO51:
+		addzx		rb2,rb1:rb4
+		jnc			r2:cf,Displacement WO5
+; if first nibble received
+WO52:
+		addzx		rb2,rb1:rb5
+		jnc			r2:cf,Displacement WO6
+		addzx		rb1,rb1:rb7
+WO6:
+		and			rb3,rb1:rb8						; first nibble in R3
+WO7:
+		ld			rw1,mar0:r0:0,2					; reading second symbol
+		lsri		rw2,rw1:9
+		jnc			r2:df,Displacement WO7
+; if value present
+		addzx		rb2,rb1:rb4
+		jnc			r2:cf,Displacement WO9
+; if non-space symbol
+		addzx		rb2,rb1:rb5
+		jnc			r2:cf,Displacement WO8
+		addzx		rb1,rb1:rb7
+WO8:
+		and			rb1,rb1:rb8
+		lsli		rb3,rb3:4
+		or			rb3,rb3:rb1
+; if space received or symbol completed
+WO9:
+		st			mar1:r3:0,4,rb3				; store byte
+		loop		r6,Displacement WO5
+; if all bytes received
+		jumpi		Displacement WO1
+
+;
+;--------------------------------------
+; data read from stream
+WOsmStart:
+		lia			ar1:w0,CommandStreamSelector
+WOsmSkip:
+		ld			r1,mar0:r0:0,2						; reading first byte - source CPU number we skip him
+		jc			r1:nf,Displacement WOsmSkip
+WOsm5:
+		ld			r1,mar0:r0:0,2						; reading stream
+		jc			r1:nf,Displacement WOsm5
+; if value present
+		jnc			r15:zf,Displacement WOsm51
+; if RAW mode selected
+		copyzx		rb3,rb1
+		jumpi		Displacement WOsm9
+WOsm51:
+		addzx		rb2,rb1:rb4
+		jnc			r2:cf,Displacement WOsm5
+; if first nibble received
+WOsm52:
+		addzx		rb2,rb1:rb5
+		jnc			r2:cf,Displacement WOsm6
+		addzx		rb1,rb1:rb7
+WOsm6:
+		and			rb3,rb1:rb8							; first nibble in R3
+WOsm7:
+		ld			r1,mar0:r0:0,2						; reading second symbol
+		jc			r1:nf,Displacement WOsm7
+; if value present
+		addzx		rb2,rb1:rb4
+		jnc			r2:cf,Displacement WOsm9
+; if non-space symbol
+		addzx		rb2,rb1:rb5
+		jnc			r2:cf,Displacement WOsm8
+		addzx		rb1,rb1:rb7
+WOsm8:
+		and			rb1,rb1:rb8
+		lsli		rb3,rb3:4
+		or			rb3,rb3:rb1
+; if space received or symbol completed
+WOsm9:
+		st			mar1:r3:0,4,rb3						; store byte
+		loop		r6,Displacement WOsm5
+; if all bytes received
+		jumpi		Displacement WO1
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Write Blocked command
+;
+WriteBlocked:
+pushd	r10
+pushd	r11
+pusha	ar4
+pusha	ar5
+		lia			ar5:w0,SysSelector
+		lia			ar4:w0,CSR_Offset
+		lid			r11:w0,0BFh
+		ld			rb10,mar2:r10:2,0
+		and			rb10,rb10:rb11
+		st			mar2:r10:2,0,rb10
+		calli		Displacement WriteObject
+		lid			r11:w0,40h
+		or			rb10,rb10:rb11
+		st			mar2:r10:2,0,rb10
+popa	ar5
+popa	ar4
+popd	r11
+popd	r10
+ret

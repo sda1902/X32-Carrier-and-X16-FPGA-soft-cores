@@ -1,0 +1,72 @@
+		lia			ar1:w0,FlashCtrlSelector
+		lid			r2:w0,2
+		lid			r1:w0,0bh
+		st			mar0:r2:0,2,rb1				; read array command
+		lia			ar1:w0,IOSelector
+		lia			ar3:w0,FlashDataSelector
+		lia			ar2:w0,64
+		lia			ar7:w0,CodeSelector
+		lid			r9:w0,Offset String1 shl 2
+		lid			r10:w0,Offset AutoParamBlock shl 2
+		lid			r11:w0,1000h
+		lid			r12:w0,1
+		lid			r20:w0,60
+AutoloadCycle:
+		sar			r1,ar2
+		xor			rw0,rw11:rw1
+		jc			r0:zf,Displacement EndAutoload
+		lar			ar12,r10
+		lid			r1:w0,8
+; transfer record from flash to the param string
+AlC1:
+		ld			rq2,mar1:r4:0,4						; MAR1 - pointing Flash
+		st			mar6:r4:0,4,rq2						; MAR6 - pointing Autoparamblock
+		loop		r1,Displacement AlC1
+; checking valid entry
+		lar			ar6,r10
+		ld			rb3,mar3:r0:0,0						; mar3 - pointing Autoparamblock
+		addzx		rb3,rb3:rb12
+		jc			r3:zf,Displacement EndAutoload
+; if filename present get a run parameter and read file
+		ld			rd13,mar3:r20:0,3					; read run-parameter
+		ld			rb21,mar3:r20:-2,3					; read run flag
+		lid			r0:w0,0
+		st			mar6:r9:0,2,rb0						; null-termination before read file
+		calli		Displacement ReadFile
+		ld			rb1,mar6:r9:0,2
+		or			rb1,rb0:rb1
+		jc			r1:zf,Displacement AutoloadCycle
+; if selector present 
+		or			rd13,rd13:rd13
+		jc			r13:zf,Displacement AlC3
+; if parameter present then place code to the string
+		lar			ar12,r9
+AlC2:
+		ld			rb1,mar6:r1:0,4
+		or			rb1,rb1:rb1
+		jnc			r1:zf,Displacement AlC2
+		iar			ar12:-1								; correct pointer
+		lid			r1:w0,20h
+		st			mar6:r1:0,4,rb1
+		sar			r0,ar12
+		lid			r1:w0,CodeSelector
+		copyzx		rq2,rd13
+		calli		Displacement IntToHex
+AlC3:
+		lar			ar6,r9
+		calli		Displacement CreateProcess
+; check run flag
+		or			rb21,rb21:rb21
+		jc			rb21:zf,Displacement AutoloadCycle
+		lar			ar6,r9
+		calli		Displacement RunProcess
+		jumpi		Displacement AutoloadCycle
+		
+		align	8
+AutoParamBlock:
+		byte array 64
+
+;
+; Autoload termination
+;
+EndAutoload:

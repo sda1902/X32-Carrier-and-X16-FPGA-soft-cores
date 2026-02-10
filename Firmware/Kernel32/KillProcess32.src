@@ -1,0 +1,91 @@
+;
+;			Kill process command
+;
+KillProcess:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pusha	ar1
+pusha	ar2
+pusha	ar3
+			calli		Displacement ReadHexParam
+			or			rd0,rd0:rd0
+			jnc			r0:zf,Displacement KP2
+; if no params entered
+KP1:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; R0 - process object selector
+KP2:
+		lar			ar3,r0
+		lid			r1:w0,process_PSO_offset
+		lid			r4:w0,0
+		ld			rd0,mar1:r1:0,2				; reading PSO Selector from the process object
+		st			mar1:r1:0,2,rd4				; setting PSO selector to zero in the process object
+; calculate address of context
+		lid			r1:w0,52
+		lar			ar3,r0
+		lid			r2:w0,0
+		lid			r3:w0,0
+		ld			rd2,mar1:r1:0,2				; reading context stack offset
+		lid			r1:w0,60
+		ld			rd3,mar1:r1:0,2				; reading context stack pointer
+		addzx		rd2,rd2:rd3
+		lid			r4:w0,8
+		addzx		rd2,rd2:rw4
+		lar			ar2,r2						; offset to CSR position
+		lid			r4:w0,0
+; free all objects, which created by process
+		lia			ar3:w0,SysSelector
+		lid			r1:w0,4
+		ld			rd3,mar1:r1:0,2				; reading DT limit
+		lsri		rd3,rd3:8
+		lia			ar3:w0,DTSelector
+		lia			ar2:w0,24
+		lid			r2:w0,32
+KP3:
+		sar			r4,ar2						; store address
+		ld			rd1,mar1:r2:0,1				; reading owner
+		xor			rd1,rd1:rd0
+		jc			r1:zf,Displacement KP4
+		loop		r3,Displacement KP3
+		jumpi		Displacement KP5
+; if descriptor found
+KP4:
+		lsri		rd4,rd4:5					; extract selector value
+		memalloc	r4
+		loop		r3,Displacement KP3
+; change PSO owner and delete him
+KP5:
+		lid			r1:w0,PSOSelector
+		calli		Displacement SetParentSelector
+		memalloc	r0							; remove PSO
+		lid			r0:w0,(Offset CmdStates shl 2)+3
+		ld			rb1,mar6:r0:0,2
+		lsli		rd1,rd1:24
+		jc			r1:zf,Displacement KP6
+		lid			r0:w0,EchoStreamSelector
+		or			rd0,rd0:rd1
+		lar			ar1,r0
+KP6:		
+		lid			r0:w0,8
+		lid			r1:w0,4Bh
+		st			mar0:r0:0,2,rb1
+		lid			r2:w0,50h
+		st			mar0:r0:0,2,rb2
+		lid			r3:w0,0dh
+		st			mar0:r0:0,2,rb3
+		lid			r1:w0,0ah
+		st			mar0:r0:0,2,rb1
+		jumpi		Displacement KP1

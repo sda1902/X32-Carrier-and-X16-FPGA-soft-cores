@@ -1,0 +1,61 @@
+;
+;		Output of the object length
+;
+GetLength:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pusha	ar0
+pusha	ar1
+			calli		Displacement ReadHexParam
+			or			rd0,rd0:rd0
+			jc			r0:zf,Displacement GL0
+; if selector entered
+			calli		Displacement GetObjectSize
+GL0:
+			copyzx		rq2,rd0
+			lsli		rq2,rq2:5
+			lid			r0:w0,Offset String1 shl 2
+			sar			r1,ar13
+			calli		Displacement IntToStr
+			lar			ar0,r0
+			lar			ar1,r1
+			lid			r2:w0,0
+			lid			r1:w0,1
+GL1:
+			ld			rb3,mar0:r3:0,4
+			addzx		rb2,rb2:rb1
+			or			rb3,rb3:rb3
+			jnc			r3:zf,Displacement GL1
+			subzx		rb2,rb2:rb1
+			lid			r3:w0,12
+			subzx		rb3,rb3:rb2
+			lid			r1:w0,(Offset CmdStates shl 2)+3
+			ld			rb2,mar6:r1:0,2						; reading echo CPU number
+			or			rb2,rb2:rb2
+			lia			ar1:w0,IOSelector
+			jc			r2:zf,Displacement GL11
+			lid			r1:w0,EchoStreamSelector
+			lsli		rd2,rd2:24
+			or			rd2,rd2:rd1
+			lar			ar1,r2
+GL11:
+			lid			r2:w0,08h
+			lid			r1:w0,30h
+GL2:
+			st			mar0:r2:0,2,rb1
+			loop		r3,Displacement GL2
+			sar			r1,ar13
+			calli		Displacement OutString
+			lid			r0:w0,0dh
+			st			mar0:r2:0,2,rb0
+			lid			r0:w0,0ah
+			st			mar0:r2:0,2,rb0
+popa	ar1
+popa	ar0
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret

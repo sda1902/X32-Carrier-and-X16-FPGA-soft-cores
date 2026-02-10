@@ -1,0 +1,75 @@
+;
+;		Create Object command
+; 
+;
+CreateObject:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pusha	ar2
+pusha	ar3
+		lid			r1:w0,1
+		calli		Displacement ReadDecParam
+		subzx		rq2,rq0:rb1
+		lsri		rq2,rq2:5
+		addzx		rq4,rq2:rb1
+		lsli		rq4,rq4:32
+		memalloc	r4
+		or			rd4,rd4:rd4
+		jnc			r4:zf,Displacement CO1
+; report of command status
+CO0:
+		copyzx		rq2,rq4
+		lar			ar6,r10
+		lid			r0:w0,43h
+		st			mar3:r1:0,4,rb0
+		lid			r0:w0,4Fh
+		st			mar3:r1:0,4,rb0
+		lid			r0:w0,20h
+		st			mar3:r1:0,4,rb0
+		sar			r0,ar6
+		sar			r1,ar7
+		calli		Displacement IntToHex
+		copyzx		rq0,rq10
+		calli		Displacement OutString
+		lid			r0:w0,Offset CRString shl 2
+		calli		Displacement OutString
+popa	ar3
+popa	ar2
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if object created
+CO1:
+		ld			rb0,mar3:r1:0,4
+		or			rb0,rb0:rb0
+		jc			r0:zf,Displacement CO0				; if no more parameters specified
+; if AR byte specified
+		lid			r6:w0,0								; default TASK ID
+		calli		Displacement ReadHexParam
+		copyzx		rb5,rb0								; r4 - selector, r5 - AR
+		ld			rb0,mar3:r1:0,4
+		or			rb0,rb0:rb0
+		jc			r0:zf,Displacement CO4
+; if TASK ID specified
+		calli		Displacement ReadHexParam
+		copyzx		rq6,rq0
+CO4:
+		lia			ar3:w0,DTSelector
+		copyzx		rq0,rq4
+		lsli		rq0,rq0:5
+		lar			ar2,r0								; base address of descriptor
+		st			mar1:r0:5,0,rb6
+		lsri		rw6,rw6:8
+		st			mar1:r0:6,0,rb6
+		st			mar1:r0:7,0,rb5
+		jumpi		Displacement CO0

@@ -1,0 +1,539 @@
+;
+; 1 check the catalog object if no catalog then create him
+; 2 check filename
+; 3 check available size
+; 4 create and write header
+; 5 write raw data
+;
+WriteFile:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r9
+pushd	r10
+pushd	r11
+pushd	r12
+pushd	r13
+pushd	r14
+pushd	r15
+pushd	r16												;FlashCtrlSelector
+pushd	r17												;FlashDataSelector
+pushd	r18												;FlashWBSelector
+pushd	r19
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar3
+pusha	ar4
+pusha	ar5
+pusha	ar6
+pusha	ar7
+pusha	ar8
+pusha	ar9
+; prepare selectors
+			lid			r0:w0,(Offset CmdStates shl 2)+3
+			ld			rb1,mar6:r0:0,2
+			lsli		rd1,rd1:24
+			lid			r16:w0,FlashCtrlSelector
+			or			rd16,rd16:rd1
+			lid			r17:w0,FlashDataSelector
+			or			rd17,rd17:rd1
+			lid			r18:w0,FlashWBSelector
+			or			rd18,rd18:rd1
+			copyzx		rq19,rd1
+; read object selector
+			calli		Displacement ReadHexParam
+			lar			ar5,r0							; MAR2 - pointer to the object
+			ld			rb0,mar3:r5:0,4
+			or			rb0,rb0:rb0
+			jc			r0:zf,Displacement WFEnd
+; check Flash ready
+			lar			ar1,r16
+			lid			r6:w0,5
+			lid			r0:w0,2
+			st			mar0:r0:0,2,rb6
+			lar			ar1,r17
+			lid			r0:w0,0
+WF0:
+			ld			rb6,mar0:r0:0,2
+			lsri		rb6,rb6:1
+			jc			r6:df,Displacement WF0
+			lar			ar1,r16
+			lid			r0:w0,2
+			lid			r6:w0,0bh						; read instruction
+			st			mar0:r0:0,2,rb6
+			lar			ar1,r17							; MAR0 - pointer to the catalog object
+			lar			ar3,r17							; MAR1 - copy of pointer for compare filename
+			lid			r1:w0,1000h						; R1=4096 for increment address
+			lid			r2:w0,0
+			lar			ar0,r1							; start from 1000h
+			lid			r3:w0,1							; constant 1
+			lid			r0:w0,4095						; number of entries LOOP counter
+; scanning file table
+WF2:
+			sar			r4,ar0
+			ld			rd5,mar0:r1:0,1
+			addzx		rd6,rd5:rw3
+			jnc			r6:zf,Displacement WF3
+; if empty block found
+			addzx		rw2,rw2:rw3
+WF210:
+			loop		r0,Displacement WF2
+			jumpi		Displacement WFNoFileExists
+; if non-empty entry
+WF3:
+			lsli		rd5,rd5:16
+			jnc			r5:zf,Displacement WF210
+; if start entry found checkin filename
+			lar			ar2,r4
+			iar			ar2:32							; offset to the filename
+			sar			r4,ar6							; store pointer to the new filename
+WF4:
+			ld			rb5,mar1:r5:0,4
+			ld			rb6,mar3:r5:0,4
+			xor			rb7,rb5:rb6
+			jnc			r7:zf,Displacement WF5
+			or			rb5,rb5:rb6
+			jc			r5:zf,Displacement WFFileExists
+			jumpi		Displacement WF4
+; if strings not equal
+WF5:
+			lar			ar6,r4							; restore pointer to the new filename
+			loop		r0,Displacement WF2
+			jumpi		Displacement WFNoFileExists
+; if File exists
+WFFileExists:
+			lid			r0:w0,Offset FileExistsString shl 2
+WF6:
+			sar			r1,ar13
+			calli		Displacement OutString
+WFEnd:
+popa	ar9
+popa	ar8
+popa	ar7
+popa	ar6
+popa	ar5
+popa	ar4
+popa	ar3
+popa	ar2
+popa	ar1
+popa	ar0
+popd	r19
+popd	r18
+popd	r17
+popd	r16
+popd	r15
+popd	r14
+popd	r13
+popd	r12
+popd	r11
+popd	r10
+popd	r9
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if no file exists then checkin available size and object size. R2 - count of free blocks
+WFNoFileExists:
+			sar			r0,ar5
+			calli		Displacement GetObjectSize		; calculate object size in 32-byte paragraphs
+			copyzx		rq15,rq0						; R15 copy of object length
+			lsli		rq15,rq15:3						; length in dwords
+			lid			r4:w0,8
+			addzx		rd0,rd0:rw4
+			lsri		rd0,rd0:7
+			addzx		rd0,rd0:rw3						; length in 4096 blocks
+			subzx		rd4,rd2:rd0
+			jc      	r4:cf,Displacement WFSizeOK
+			lid			r0:w0,Offset NoFreeSizeString shl 2
+			jumpi		Displacement WF6
+; if free Size is good for file then seek first free sector
+; registers assignment
+; R15 - length of the object (rest of) in dwords
+; R1 - constant 4096 for seek free sectors
+;		create file header and first file block
+; R3 - constant 1
+WFSizeOK:
+			lia			ar4:w0,0						; MAR2 pointer to object data
+			lar 		ar0,r1							; MAR0 pointer to object catalog
+			lia			ar2:w0,0						; reset pointer to the write buffer
+			lar			ar3,r18							; MAR1 pointer to flash write buffer
+			calli		Displacement SetWriteEnable		; turn ON write enable bit
+			lid			r0:w0,2
+			st			mar1:r0:0,4,rb0					; page program instruction
+; search free block
+WF7:
+			sar			r4,ar0							; store pointer
+			ld			rd0,mar0:r1:0,1
+			addzx		rd0,rd0:rb3
+			jnc			r0:zf,Displacement WF7
+; R4 - address of the first block find free block check object length
+			lid			r5:w0,0
+			lid			r0:w0,-960							; maximum length of the object, which can be saved into first block
+			addsx		rd0,rd15:rw0
+			jnc			r0:cf,Displacement WF9			; go, if file can be saved into one block
+; if need to find next free block
+WF8:
+			sar			r5,ar0
+			ld			rd0,mar0:r1:0,1
+			addzx		rd0,rd0:rb3
+			jnc			r0:zf,Displacement WF8
+; R4 - pointer to the first block, R5 - pointer to the next block
+WF9:
+			copyzx		rd0,rd4							; set page address
+			lsli		rd0,rd0:8						; convert to 24 bit address
+			csli		rd0,rd0:8
+			st			mar1:r0:0,4,rb0					; high address byte
+			csli		rd0,rd0:8
+			st			mar1:r0:0,4,rb0					; medium byte
+			lid			r0:w0,0
+			st			mar1:r0:0,4,rb0					; low byte
+; 
+			st			mar1:r0:0,4,rw0					; lower link index for first block
+			copyzx		rd0,rd5
+			lsri		rd0,rd0:12						; upper link idex
+			st			mar1:r0:0,4,rw0
+; position for CRC code
+			lid			r0:w0,0FFFFh
+			st			mar1:r0:0,4,rd0
+; set the file length
+			copyzx		rd0,rd15
+			lsli		rd0,rd0:2
+			st			mar1:r0:0,4,rd0
+			lid			r0:w0,0
+			st			mar1:r0:0,4,rb0
+; atribute byte
+			lid			r0:w0,0FFFFh
+			st			mar1:r0:0,4,rb0
+; set timestamp
+			st			mar1:r0:0,4,rw0
+			st			mar1:r0:0,4,rd0
+			st			mar1:r0:0,4,rd0
+			st			mar1:r0:0,4,rw0
+; reserved 6 bytes
+			st			mar1:r0:0,4,rw0
+			st			mar1:r0:0,4,rw0
+			st			mar1:r0:0,4,rw0
+; copy filename
+WF10:
+			ld			rb0,mar3:r0:0,4
+			st			mar1:r0:0,4,rb0
+			or			rb0,rb0:rb0
+			jnc			r0:zf,Displacement WF10
+; fill rest of page by code 0FFh
+			sar			r6,ar2
+			lid			r0:w0,260
+			subzx		rd6,rw0:rd6
+			lid			r0:w0,0FFFFh
+WF11:
+			st			mar1:r0:0,4,rb0
+			loop		r6,Displacement WF11
+; calculate CRC for first block
+			lia			ar7:w0,IOSelector				; MAR3 - IO registers
+			lia			ar6:w0,18h
+			st			mar3:r0:0,4,rd0					; initial state of the CRC and promote pointer to data entrance
+			lia			ar2:w0,12						; offset first byte
+			lid			r0:w0,256-8						; count of bytes
+WF12:
+			ld			rb6,mar1:r0:0,4
+			st			mar3:r6:0,0,rb6
+			loop		r0,Displacement WF12
+; calculate CRC of data
+			lid			r7:w0,960
+			copyzx		rd6,rw7
+			subzx		rd0,rd15:rd6
+			jc			r0:cf,Displacement WF13
+; if length less than 960 dwords
+			copyzx		rd7,rd15
+WF13:
+			sar			r8,ar4							; store source offset
+			copyzx		rd6,rd7							; copy of processed dwords
+			lsri		rd6,rd6:1						; count of qwords
+WF14:
+			ld			rq0,mar2:r0:0,4
+			st			mar3:r6:0,0,rb0					; 0
+			lsri		rq0,rq0:8
+			st			mar3:r6:0,0,rb0					; 1
+			lsri		rq0,rq0:8
+			st			mar3:r6:0,0,rb0					; 2
+			lsri		rq0,rq0:8
+			st			mar3:r6:0,0,rb0					; 3
+			lsri		rq0,rq0:8
+			st			mar3:r6:0,0,rb0					; 4
+			lsri		rq0,rq0:8
+			st			mar3:r6:0,0,rb0					; 5
+			lsri		rq0,rq0:8
+			st			mar3:r6:0,0,rb0					; 6
+			lsri		rq0,rq0:8
+			st			mar3:r6:0,0,rb0					; 7
+			loop		r6,Displacement WF14
+			lar			ar4,r8							; restore source offset
+			lia			ar6:w0,18h
+			ld			rd6,mar3:r6:0,0					; read calculated CRC
+			lia			ar2:w0,8
+			st			mar1:r6:0,0,rd6					; store CRC
+			copyzx		rd9,rd4							; copy of block
+; transfer data to the flash
+			lid			r6:w0,260
+			lar			ar9,r16							; MAR4 - pointer to the flash control register 1000000h
+			lia			ar8:w0,0
+			st			mar4:r6:0,0,rw6					; write file header
+			lid			r0:w0,100h
+			addzx		rd4,rd4:rw0						; address for write data
+			copyzx		rd8,rd7
+			calli		Displacement WriteRestOfBlock
+			subzx		rd15,rd15:rd8
+; cycle for write all next data
+WFBlockCycle:
+			jnc			r15:zf,Displacement WF16
+; if all data was writen
+			jumpi		Displacement WFWriteOK
+; if data present
+WF16:
+			copyzx		rd4,rd5
+			addzx		rd5,rd5:rw1
+			lar			ar0,r5
+			lid			r5:w0,0							; as dword
+			copyzx		rd7,rd15
+			lid			r0:w0,-1022						; dwords, which can be saved into regular block
+			addsx		rd0,rd15:rw0
+			jc			r0:cf,Displacement WF170
+			jumpi		Displacement WF18				; go, if file can be saved into one block
+; if need to find next free block check ready
+WF170:
+			lia			ar8:w0,2
+			lid			r6:w0,05h
+			st			mar4:r6:0,0,rb6
+			lar			ar7,r17
+			lia			ar6:w0,0
+WF171:
+			ld			rb0,mar3:r6:0,0
+			lsri		rb0,rb0:1
+			jc			r0:df,displacement WF171
+			lid			r6:w0,0bh						; read instruction
+			st			mar4:r6:0,0,rb6
+WF17:
+			sar			r5,ar0
+			ld			rd0,mar0:r1:0,1
+			addzx		rd0,rd0:rb3
+			jnc			r0:zf,Displacement WF17
+			lid			r7:w0,1022
+; R4 - pointer to the current block, R5 - pointer to the next block create header of the first page R9 - pointer to the previous block
+WF18:
+; wait for ready
+			lia			ar8:w0,0
+			lid			r6:w0,05h
+			st			mar4:r6:0,0,rb6
+			lar			ar7,r17
+			lia			ar6:w0,0
+WF181:
+			ld			rb0,mar3:r6:0,0
+			lsri		rd0,rd0:1
+			jc			r0:df,displacement WF181
+; if flash ready
+			calli		Displacement SetWriteEnable
+			lia			ar2:w0,0
+			lid			r0:w0,2
+			st			mar1:r0:0,4,rb0
+			copyzx		rd0,rd4							; set page address
+			lar			ar0,r4
+			lsli		rd0,rd0:8						; convert to 24 bit address
+			csli		rd0,rd0:8
+			st			mar1:r0:0,4,rb0					; high address byte
+			csli		rd0,rd0:8
+			st			mar1:r0:0,4,rb0					; medium byte
+			lid			r0:w0,0
+			st			mar1:r0:0,4,rb0					; low byte
+; 
+			copyzx		rd0,rd9
+			lsri		rd0,rd0:12
+			st			mar1:r0:0,4,rw0					; lower link index for first block
+			copyzx		rd0,rd5
+			lsri		rd0,rd0:12						; upper link idex
+			st			mar1:r0:0,4,rw0
+; calculate CRC for block
+			lia			ar7:w0,IOSelector
+			lia			ar6:w0,18h
+			lid			r0:w0,0FFFFh
+			st			mar3:r0:0,4,rd0					; initial CRC value and increment pointer to the data register
+			sar			r8,ar4							; start address of data
+			copyzx		rd6,rd7
+WF20:
+			ld			rd0,mar2:r0:0,4
+			st			mar3:r6:0,0,rb0					;0
+			lsri		rd0,rd0:8
+			st			mar3:r6:0,0,rb0					;1
+			lsri		rd0,rd0:8
+			st			mar3:r6:0,0,rb0					;2
+			lsri		rd0,rd0:8
+			st			mar3:r6:0,0,rb0					;3
+			loop		r6,Displacement WF20
+			lar			ar4,r8							; restore start address
+			lia			ar6:w0,18h
+			ld			rd6,mar3:r6:0,0					; read calculated CRC
+			st			mar1:r0:0,4,rd6					; set CRC into header
+; copy data to the buffer
+			lid			r6:w0,62
+			copyzx		rd0,rd6
+			neg			rd0,rw6
+			addzx		rd0,rd7:rd0
+			jc			r0:cf,Displacement WF21
+			copyzx		rd6,rd7
+WF21:
+			copyzx		rd8,rd6
+WF22:
+			ld			rd0,mar2:r0:0,4
+			st			mar1:r0:0,4,rd0
+			loop		r6,Displacement WF22
+; send write command
+			lid			r6:w0,260
+			lia			ar8:w0,0
+			st			mar4:r6:0,0,rw6					; write file header
+; decrement R7
+			subzx		rd7,rd7:rd8
+			subzx		rd15,rd15:rd8
+			copyzx		rd9,rd4
+			lid			r0:w0,100h
+			addzx		rd4,rd4:rw0						; address for write data
+			copyzx		rd8,rd7
+			calli		Displacement WriteRestOfBlock
+			neg			rd8,rd8
+			addzx		rd15,rd15:rd8
+			jumpi		Displacement WFBlockCycle
+; end of write file
+WFWriteOK:
+			lar			ar1,r16
+			lid			r6:w0,5
+			lid			r0:w0,2
+			st			mar0:r0:0,2,rb6
+			lar			ar1,r17
+			lid			r0:w0,0
+; check Flash ready
+WFWOK:
+			ld			rb6,mar0:r0:0,2
+			lsri		rb6,rb6:1
+			jc			r6:df,Displacement WFWOK
+			lar			ar1,r16
+			lid			r0:w0,2
+			lid			r6:w0,0bh						; read instruction
+			st			mar0:r0:0,2,rb6
+
+			lia			ar1:w0,IOSelector
+			or			rd0,rd19:rd19
+			jc			r0:zf,Displacement WFWOK0
+			lid			r1:w0,EchoStreamSelector
+			or			rd1,rd1:rd19
+			lar			ar1,r1
+WFWOK0:
+			lid			r1:w0,8
+			lid			r0:w0,57h
+			st			mar0:r1:0,2,rb0
+			lid			r0:w0,46h
+			st			mar0:r1:0,2,rb0
+			lid			r0:w0,0dh
+			st			mar0:r1:0,2,rb0
+			lid			r0:w0,0ah
+			st			mar0:r1:0,2,rb0
+			jumpi		Displacement WFEnd
+
+	align 4
+FileExistsString:
+		byte 'File already exists',0
+		
+	align 4
+NoFreeSizeString:
+		byte 'Not enougth free size',0
+
+;
+;--------------------------------------------------------------------------------------------------
+; 			Set write enable 
+;
+	align 4
+SetWriteEnable:
+pushd	r0
+pusha	ar0
+pusha	ar1
+			lar			ar1,r18
+			lia			ar0:w0,0
+			lid			r0:w0,06h
+			st			mar0:r0:0,0,rb0
+			lar			ar1,r16
+			lid			r0:w0,1
+			st			mar0:r0:0,0,rw0
+popa	ar1
+popa	ar0
+popd	r0
+ret
+;
+;--------------------------------------------------------------------------------------------------
+;			write rest of block
+; R7 - data count in dwords
+; MAR2 - pointer to the first byte in object
+; R4 - offset for flash
+; MAR4 - pointer to flash ctrl register
+; MAR1 - pointer to the flash write buffer
+; MAR3 - pointer to flash data
+;
+WriteRestOfBlock:
+			or			rd7,rd7:rd7
+			jnc			r7:zf,displacement WROB2
+			ret
+WROB2:
+			lia			ar8:w0,2
+			lid			r6:w0,05h
+			st			mar4:r6:0,0,rb6
+			lar			ar7,r17
+			lia			ar6:w0,0
+WROB3:
+			ld			rb0,mar3:r6:0,0
+			lsri		rb0,rb0:1
+			jc			r0:df,displacement WROB3
+
+			calli		Displacement SetWriteEnable
+			lia			ar2:w0,0
+			lid			r0:w0,2
+			st			mar1:r0:0,4,rb0					; instruction
+; set address
+			copyzx		rd0,rd4
+			lid			r6:w0,100h
+			addzx		rd4,rd4:rw6						; promote pointer
+			lsli		rd0,rd0:8
+			csli		rd0,rd0:8
+			st			mar1:r0:0,4,rb0					; high address byte
+			csli		rd0,rd0:8
+			st			mar1:r0:0,4,rb0					; med byte
+			csli		rd0,rd0:8
+			st			mar1:r0:0,4,rb0					; low byte
+; set length of copied data
+			lid			r6:w0,64
+			subzx		rd0,rd7:rw6
+			jc			r0:cf,Displacement WROB0
+			copyzx		rd6,rd7
+WROB0:
+			copyzx		rd0,rd6
+			subzx		rd7,rd7:rd0
+; transfer data to the buffer
+WROB1:
+			ld			rd0,mar2:r0:0,4
+			st			mar1:r0:0,4,rd0
+			loop		r6,Displacement WROB1
+			lia			ar8:w0,0
+			lid			r6:w0,260
+			st			mar4:r6:0,0,rw6					; write page
+			lid			r0:w0,04ffh
+WROB4:
+			nop
+			loop		r0,displacement WROB4
+			jumpi		displacement WriteRestOfBlock

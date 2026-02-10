@@ -1,0 +1,65 @@
+Info: Compiler started. 
+Info: Reading file  D:\Work\CPU\Soft\Kernel32\Kernel32.src
+Info: Reading file  D:\WORK\CPU\SOFT\CORE INSTRUCTION SET 32BIT.SRC
+Info: Total loaded lines : 1311
+Info: Reading file  D:\WORK\CPU\SOFT\DEFINITIONS.SRC
+Info: Total loaded lines : 54
+Info: Reading file  AUTOLOAD32.SRC
+Info: Total loaded lines : 61
+Info: Reading file  READ32.SRC
+Info: Total loaded lines : 301
+Info: Reading file  WRITE32.SRC
+Info: Total loaded lines : 222
+Info: Reading file  CREATEOBJECT32.SRC
+Info: Total loaded lines : 67
+Info: Reading file  DELETEOBJECT32.SRC
+Info: Total loaded lines : 61
+Info: Reading file  CREATEPROCESS32.SRC
+Info: Total loaded lines : 676
+Info: Reading file  RUNPROCESS32.SRC
+Info: Total loaded lines : 73
+Info: Reading file  STOPPROCESS32.SRC
+Info: Total loaded lines : 68
+Info: Reading file  GETLENGTH32.SRC
+Info: Total loaded lines : 57
+Info: Reading file  KILLPROCESS32.SRC
+Info: Total loaded lines : 82
+Info: Reading file  READFILE32.SRC
+Info: Total loaded lines : 261
+Info: Reading file  WRITEFILE32.SRC
+Info: Total loaded lines : 464
+Info: Reading file  GETCATALOG32.SRC
+Info: Total loaded lines : 105
+Info: Reading file  DELETEFILE32.SRC
+Info: Total loaded lines : 192
+Info: Reading file  ERASEFLASH32.SRC
+Info: Total loaded lines : 78
+Info: Reading file  GETSTATUS32.SRC
+Info: Total loaded lines : 183
+Info: Reading file  CPULIST32.SRC
+Info: Total loaded lines : 87
+Info: Reading file  PERFORMANCE32.SRC
+Info: Total loaded lines : 47
+Info: Reading file  READBREAKPOINT32.SRC
+Info: Total loaded lines : 46
+Info: Reading file  PROCLIST32.SRC
+Info: Total loaded lines : 128
+Info: Reading file  SUBPROG32.SRC
+Info: Total loaded lines : 478
+Info: Reading file  SYSERROR32.SRC
+Info: Total loaded lines : 82
+Info: Reading file  BREAKPOINT32.SRC
+Info: Total loaded lines : 65
+Info: Reading file  DLP32.SRC
+Info: Total loaded lines : 91
+Info: Reading file  GETENTRY32.SRC
+Info: Total loaded lines : 87
+Info: Reading file  SERVICE32.SRC
+Info: Total loaded lines : 1193
+Info: Total loaded lines : 1106
+Info: Processing constant equations 
+Info: Processing objects 
+Info: Loading instruction references... 
+Info: Processing cross tables 
+Info: Compiling objects... 
+Info: Creating the object binary files. 

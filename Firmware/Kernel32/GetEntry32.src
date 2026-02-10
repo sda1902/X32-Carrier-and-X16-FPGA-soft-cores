@@ -1,0 +1,100 @@
+;
+;				Search procedure or message entry
+;
+GetEntry:
+			lid				r6:w0,5250h
+			lia				ar1:w0,SysSelector
+			lid				r6:w1,434Fh
+			lid				r2:w0,4
+			lid				r15:w0,0
+			lid				r6:w2,5345h
+			ld				rd15,mar0:r2:0,2				; read DT limit
+			lia				ar0:w0,7
+			lid				r6:w3,53h
+			lid				r1:w0,32
+			lsri			rd15,rd15:8						; DT entries count
+			lia				ar1:w0,DTSelector
+			getpar			r3
+			lar				ar3,r3
+			lid				r7:w0,32h
+			lid				r8:w0,33h						; mask
+			lia				ar4:w0,0
+; search object descriptors
+GE1:
+			sar				r5,ar0							; store pointer to DT Entry
+			ld				rb0,mar0:r1:0,1					; Descriptor control byte
+			and				rb0,rb0:rb8
+			xor				rb0,rb0:rb7
+			jc				r0:zf,displacement GE2
+			loop			r15,displacement GE1
+			jumpi			displacement GENoEntry
+; if object found
+GE2:
+			lsri			rq5,rq5:5						; object selector 
+			lar				ar5,r5
+			lia				ar4:w0,0
+			ld				rq0,mar2:r0:0,0
+			xor				rq0,rq0:rq6
+			jc				r0:zf,displacement GE3
+			loop			r15,displacement GE1
+			jumpi			displacement GENoEntry
+; if process object found then check process name
+GE3:
+			lia				ar2:w0,8
+			lia				ar4:w0,8
+GE4:
+			ld				rb0,mar1:r4:0,4
+			ld				rb2,mar2:r4:0,4
+			or				rb3,rb0:rb2
+			jc				r3:zf,displacement GE5
+			xor				rb3,rb0:rb2
+			jc				r3:zf,displacement GE4
+			loop			r15,displacement GE1
+			jumpi			displacement GENoEntry
+; if process found then check his state
+GE5:
+			lia				ar2:w0,0
+			lid				r2:w0,48h						; offset to the PSO selector position
+			ld				rd12,mar2:r2:0,2
+			or				rd12,rd12:rd12
+			jc				r12:zf,displacement GENoEntry
+; if process created then search exported procedure name
+GE6:
+			lid				r2:w0,70h
+			lid				r11:w0,0
+			ld				rw11,mar2:r2:0,2				; read export count
+			or				rw11,rw11:rw11
+			jc				r11:zf,displacement GENoEntry
+; if export table present
+			lid				r9:w0,0
+			lid				r0:w0,40h						;constant 64 to increment pointer
+			lid				r10:w0,1
+			lid				r4:w0,80h
+GE7:
+			lar				ar4,r4							;initial offset to export table
+			lia				ar2:w0,48h						;offset to procedure name
+GE8:
+			ld				rb1,mar1:r4:0,4
+			ld				rb2,mar2:r4:0,4
+			or				rb3,rb1:rb2
+			jc				r3:zf,displacement GE9
+			xor				rb3,rb1:rb2
+			jc				r3:zf,displacement GE8
+			addzx			rd4,rw0:rd4						; offset to the next record
+			addzx			rd9,rd9:rb10					; increment entry number
+			loop			r11,displacement GE7
+			jumpi			displacement GENoEntry
+; if entry found
+GE9:
+			lid				r16:w0,2020h
+			fieldset		rq12,r9:r16
+			lid				r2:w0,0
+			st				mar1:r2:0,2,rq12
+			endmsg
+;
+;  No entry found
+;
+GENoEntry:
+			lid				r2:w0,0
+			st				mar1:r2:0,2,rq2
+			endmsg

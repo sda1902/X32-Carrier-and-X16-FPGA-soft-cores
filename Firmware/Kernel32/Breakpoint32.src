@@ -1,0 +1,72 @@
+;
+;		Debug breakpoint processing
+;
+		align 8
+Breakpoint:
+		getpar		r1							; reading selector PSO
+		lar			ar1,r1
+		copyzx		rq6,rd1
+		lid			r2:w0,ContextStackOffset_PSO_position
+		ld			rd4,mar0:r2:0,2
+		lid			r2:w0,ContextStackPointer_PSO_position
+		ld			rd3,mar0:r2:0,2
+		addzx		rd3,rd3:rd4
+		lid			r2:w0,8
+		addzx		rd2,rd2:rd3					; offset to CSR
+		ld			rd1,mar0:r2:0,2
+		lsli		rd1,rd1:5
+		jc			r1:df,Displacement Bkpt1
+; processing BKPT for X16 mode
+		lid			r0:w0,5ch					; cycle instruction
+		lid			r5:w0,-2
+		lid			r2:w0,16					; offset to IP image
+		addzx		rd2,rd3:rd2
+		ld			rq1,mar0:r2:0,2				; reading IP Value from PSO
+		addsx		rq1,rq1:rw5
+		copyzx		rq7,rq1
+		st			mar0:r2:0,2,rq1
+		lid			r2:w0,576
+		addzx		rd2,rd3:rw2
+		ld			rd4,mar0:r2:0,2				; reading code selector
+		lar			ar3,r4
+		st			mar1:r1:0,2,rw0				; set the jump instruction
+		jumpi		Displacement Bkpt2
+; processing BKPT for X32 mode
+Bkpt1:
+		lid			r0:w0,0CAh
+		lid			r2:w0,16					; offset to IP image
+		lid			r5:w0,-4
+		addzx		rd2,rd3:rd2
+		ld			rq1,mar0:r2:0,2				; reading IP Value from PSO
+		addsx		rq1,rq1:rw5
+		copyzx		rq7,rq1
+		st			mar0:r2:0,2,rq1
+		lid			r2:w0,960
+		addzx		rd2,rd3:rd2
+		ld			rd4,mar0:r2:0,2				; reading code selector
+		lar			ar3,r4
+		st			mar1:r1:0,2,rd0				; set the jump instruction
+; common end
+Bkpt2:
+		lia			ar5:w0,BKPTSelector
+		lid			r1:w0,Offset BKPTPtr shl 2
+		lid			r0:w0,0
+		ld			rb0,mar6:r1:0,2
+		lar			ar4,r0
+		st			mar2:r0:0,4,rd6
+		st			mar2:r0:0,4,rd7
+		sar			r0,ar4
+		st			mar6:r1:0,2,rb0
+		lid			r2:w0,1
+		lid			r4:w0,-1
+		addzx		rd1,rd1:rb2
+		lia			ar1:w0,IOSelector
+		lid			r2:w0,14h
+		ld			rb0,mar0:r2:0,2
+		addsx		rb0,rb0:rb4
+		st			mar6:r1:0,2,rb0
+		endmsg
+
+	align 4
+BKPTPtr:
+	dword	0

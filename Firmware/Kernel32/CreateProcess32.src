@@ -1,0 +1,801 @@
+;
+;		Create process command
+; input parameter - object selector
+;
+CreateProcess:
+pushd	r0
+pushd	r1
+pushd	r2
+pusha	ar1
+		calli		Displacement ReadHexParam
+		or			rd0,rd0:rd0
+		jnc			r0:zf,Displacement CP2
+; if no params entered
+CP1:
+popa	ar1
+popd	r2
+popd	r1
+popd	r0
+ret
+; if object selector entered
+; create objects 
+; 1 PSO
+; 2 4 stacks
+CP2:
+; checking run parameter
+		lid			r1:w0,0
+		ld			rb1,mar3:r1:0,4
+		or			rb1,rb1:rb1
+		jc			r1:zf,Displacement CP3
+; if run parameter entered
+		copyzx		rd2,rd0
+		calli		Displacement ReadHexParam
+		copyzx		rd1,rd0
+		copyzx		rd0,rd2
+CP3:
+		calli		Displacement CreateProcessObjects
+; procedure returns selector of PSO in R0
+		or			rw0,rw0:rw0
+		jc			r0:zf,Displacement CP1
+; if process created
+		lid			r0:w0,(Offset CmdStates shl 2)+3
+		ld			rb1,mar6:r0:0,2
+		lsli		rd1,rd1:24
+		jc			r1:zf,Displacement CP4
+		lid			r0:w0,EchoStreamSelector
+		or			rd0,rd0:rd1
+		lar			ar1,r0
+CP4:
+		lid			r0:w0,8
+		lid			r1:w0,43h
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,50h
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,0dh
+		st			mar0:r0:0,2,rb1
+		lid			r1:w0,0ah
+		st			mar0:r0:0,2,rb1
+		jumpi		Displacement CP1
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Process creation
+; R0 - selector of the process object
+; R1 - run parameter
+; Returns - R0 - selector of PSO
+;
+CreateProcessObjects:
+pusha	ar2
+pusha	ar3
+pusha	ar4
+pusha	ar5
+pusha	ar7
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r9
+pushd	r10
+pushd	r11
+pushd	r12
+pushd	r13
+pushd	r14
+pushd	r15
+		copyzx		rq13,rd1
+		lia			ar2:w0,0					; zero offset
+		lar			ar3,r0						; process object selector
+		lid			r1:w0,64					; start length of the PSO
+; calculate size of PSO
+		lid			r4:w0,0
+		copyzx		rq7,r4
+		copyzx		rq8,r4
+		copyzx		rq9,r4
+		copyzx		rq10,r4
+		lid			r3:w0,5Ch					; offset to the system stack length
+		ld			rd4,mar1:r3:0,2				; reading system stack length
+		lid			r3:w0,64h					; pointer to the system queue length
+		ld			rw7,mar1:r3:0,2
+		lid			r3:w0,66h					; pointer to the regular queue length
+		ld			rw8,mar1:r3:0,2
+		lid			r3:w0,70h					; pointer to the export procedures table count
+		ld			rw9,mar1:r3:0,2
+		lid			r3:w0,72h					; pointer to the import procedures table count
+		ld			rw10,mar1:r3:0,2
+		addzx		rq1,rw1:rd4					; R1 have a <PSO Base length> + <context frame length>
+		lsli		rq7,rw7:4
+		addzx		rq1,rq1:rq7					; adding system queue length
+		lsli		rq8,rw8:4
+		addzx		rq1,rq1:rq8					; adding regular queue length
+		lsli		rq9,rw9:3
+		addzx		rq1,rq1:rq9					; adding export table length
+		lsli		rq10,rw10:3
+		addzx		rq1,rq1:rq10				; adding import table length
+; R1 - full PSO length in bytes
+		lid			r2:w0,1
+		copyzx		rq9,rq1						; copy length of PSO 
+		lsri		rq1,rq1:5
+		addzx		rq1,rq1:rb2					; size in 32-byte paragraphs
+		lsli		rq10,rq1:32
+		memalloc	r10
+		or			rd10,rd10:rd10
+		jc			r10:zf,Displacement CPO_Fail
+; if object allocated
+		copyzx		rq1,rd0
+		copyzx		rq0,rd10
+		calli		Displacement SetParentSelector
+; R10 - PSO Selector
+; fill the PSO.
+		lid			r0:w0,0
+		lar			ar5,r10
+		lar			ar4,r0
+; clear whole PSO
+		lsri		rq9,rq9:3					; length of the PSO in 64-bit qwords
+CPO1:
+		st			mar2:r0:0,4,rq0
+		loop		r9,Displacement CPO1
+		lar			ar4,r0
+; 0 process timer 
+		lid			r3:w0,60h
+		ld			rd0,mar1:r3:0,2
+		st			mar2:r0:0,4,rd0
+; 4 allowable free memory
+		lid			r3:w0,54h
+		ld			rd0,mar1:r3:0,2
+		st			mar2:r0:0,4,rd0
+; 8 object count
+		lid			r3:w0,58h
+		ld			rd0,mar1:r3:0,2
+		st			mar2:r0:0,4,rd0
+; 12 exported procedures table offset
+		lid			r2:w0,64
+		st			mar2:r0:0,4,rd2
+; 16 count of the exported procedures
+		lid			r3:w0,70h
+		ld			rw0,mar1:r3:0,2
+		st			mar2:r0:0,4,rd0
+; 20 imported procedures table offset
+		lsli		rd0,rd0:3
+		addzx		rd0,rd0:rd2
+		st			mar2:r0:0,4,rd0
+; 24 count of the imported procedures
+		lid			r3:w0,72h
+		ld			rw2,mar1:r3:0,2
+		st			mar2:r0:0,4,rd2
+; 28 system messages queue offset
+		lsli		rd2,rd2:3
+		addzx		rd0,rd0:rd2
+		st			mar2:r0:0,4,rd0
+; 32 system messages queue length
+		lid			r3:w0,64h
+		ld			rw2,mar1:r3:0,2
+		st			mar2:r0:0,4,rd2
+; 36 system messages pointers
+		lid			r3:w0,0
+		st			mar2:r0:0,4,rd3
+; 40 regular message queue offset
+		lsli		rd2,rd2:4
+		addzx		rd0,rd0:rd2
+		st			mar2:r0:0,4,rd0
+; 44 regular message queue length
+		lid			r2:w0,0
+		lid			r3:w0,66h
+		ld			rw2,mar1:r3:0,2
+		st			mar2:r0:0,4,rd2
+; 48 regular queue pointers
+		lid			r3:w0,0
+		st			mar2:r0:0,4,rd3
+; 52 context stact offset
+		lsli		rd2,rd2:4
+		addzx		rd0,rd0:rd2
+		st			mar2:r0:0,4,rd0
+		copyzx		rq7,rd0								; R7 copy of context stack offset
+; 56 context stack limit
+		lid			r3:w0,5Ch
+		lid			r2:w0,0
+		ld			rd2,mar1:r3:0,2						; context stack length
+		st			mar2:r0:0,4,rd2
+; 60 context stack pointer
+		lid			r0:w0,0
+		st			mar2:r0:0,4,rd0
+; create exported procedures table
+; create imported procedures table
+; initialize context 0 in the PSO
+		lar			ar4,r7
+; setting context length
+		lid			r3:w0,4Fh							; object index
+		lid			r2:w0,0
+		ld			rb2,mar1:r3:0,2						; index of start object
+		lid			r4:w0,128
+		copyzx		rq8,rw4
+		copyzx		rq9,rw4
+		lid			r3:w0,70h
+		ld			rw8,mar1:r3:0,2						; export count
+		lid			r3:w0,72h
+		ld			rw9,mar1:r3:0,2						; import count
+		lsli		rd8,rw8:6
+		addzx		rd4,rd4:rd8
+		lsli		rd9,rw9:7
+		addzx		rd4,rd4:rd9							; offset to the first code|data object
+		lid			r5:w0,-1
+		lid			r6:w0,40h							; pointer to the length of object
+CP00:
+		or			rb2,rb2:rb2
+		jc			r2:zf,Displacement CP01
+		addzx		rd3,rd4:rd6							; pointer to the length
+		lid			r8:w0,0
+		ld			rd8,mar1:r3:0,2						; length in 32-byte paragraphs
+		lsli		rd8,rd8:5
+		addzx		rd4,rd4:rd8
+		addzx		rb2,rb2:rb5
+; if object found
+CP01:
+		addzx		rd3,rd4:rd6
+		lid			r8:w0,7
+		addzx		rd3,rd3:rb8							; pointer to the config byte
+		ld			rb2,mar1:r3:0,2
+		lid			r14:w0,592
+		or 			r2,r2:r2
+		jc			r2:zf,Displacement CP02
+		lid			r14:w0,976
+CP02:
+		st			mar2:r0:0,4,rd14					; store context length
+; message parameter
+		st			mar2:r0:0,4,rd13
+; CSR value
+		lid			r3:w0,4Ch
+		lid			r4:w0,0
+		ld			rd4,mar1:r3:0,2
+		lid			r3:w0,1fh
+		and			rb3,rb3:rb2
+		lsli		rd3,rd3:27
+		or			rd4,rd4:rd3							; set the code type
+		st			mar2:r0:0,4,rq4
+; IP value
+		lid			r3:w0,50h
+		lid			r0:w0,0
+		ld			rd0,mar1:r3:0,2						; initial offset
+		st			mar2:r0:0,4,rq0
+; SP value for CPL=0
+		lid			r3:w0,68h
+		lid			r4:w0,2
+		lid			r8:w0,4
+		lid			r9:w0,32h
+CPO2:
+		lid			r0:w0,0
+		ld			rw0,mar1:r3:0,2
+		copyzx		rq5,rw0								; stack size in paragraphs
+		lsli		rd0,rw0:5							; stack size in bytes
+		st			mar2:r0:0,4,rq0
+; SS value
+		lsli		rq5,rq5:32							; parameter for memalloc
+		memalloc	r5
+		or			rd5,rd5:rd5
+		jc			r5:zf,Displacement CPO_DeletePSO
+; if stack object selector 
+CPO3:
+		st			mar2:r0:0,4,rq5
+		lar			ar7,r5
+		copyzx		rq0,rd5
+		copyzx		rq1,rw9
+		calli		Displacement SetARByte
+		copyzx		rq1,rd10
+		calli		Displacement SetParentSelector
+		xor			rq5,rq5:rq5
+		st			mar3:r5:0,2,rq5
+		addzx		rw9,rw9:rw4
+		addzx		rw9,rw9:rw4
+		addzx		rw3,rw3:rw4
+		loop		r8,Displacement CPO2
+; creating object for code
+		sar			r0,ar3							; reading selector of the process object
+		calli		Displacement GetObjectSize		; R0 returns size of object in 32-byte paragraphs
+		lsli		rq0,rd0:5
+		copyzx		rq15,rq0						; copy of length of process object
+; calculate length of process header
+		lid			r3:w0,4Fh
+		ld			rb9,mar1:r3:0,2
+		lid			r3:w0,70h
+		lid			r4:w0,128
+		lid			r6:w0,0
+		lid			r8:w0,0
+		ld			rw6,mar1:r3:0,2
+		lid			r3:w0,72h
+		ld			rw8,mar1:r3:0,2
+		lsli		rq6,rw6:6
+		addzx		rd4,rd4:rd6
+		lsli		rq8,rw8:7
+		addzx		rd4,rd4:rd8
+; code and data objects creations
+CPO30:
+		xor			rd2,rd0:rd4
+		jc			r2:zf,Displacement CPO32
+		lid			r3:w0,40h
+		addzx		rd3,rw3:rd4
+		ld			rd2,mar1:r3:0,2					; reading object length in paragraphs
+		lid			r5:w0,-2
+		addsx		rq5,rw5:rd2						; length of Object in paragraphs
+		lsli		rq5,rq5:32
+		copyzx		rq6,rd2
+		lsli		rq6,rq6:2
+		lid			r3:w0,-9
+		addsx		rq6,rq6:rb3						; length in qwords
+		memalloc	r5
+		or			rd5,rd5:rd5
+		jc			r5:zf,Displacement CPO_DeletePSO
+; set code selector into process object
+		lid			r3:w0,3Ch
+		addzx		rd3,rd4:rw3
+		st			mar1:r3:0,2,rd5
+		or			rb9,rb9:rb9
+		jnc			r9:zf,displacement CPO31
+; set code selector into PSO
+		lid			r8:w0,-16
+		addsx		rq8,rw8:rq14
+		addzx		rq8,rq8:rq7						; AR13 position
+		lar			ar4,r8
+		st			mar2:r0:0,4,rd5					; code selector
+CPO31:
+		copyzx		rq12,rd0
+		copyzx		rq0,rd5
+		copyzx		rq1,rd10
+		calli		Displacement SetParentSelector
+		lid			r3:w0,4Eh
+		ld			rb1,mar1:r3:0,2
+		lid			r3:w0,0Ch
+		lid			r8:w0,32h
+		and			rb1,rb1:rb3
+		or			rb1,rb1:rb8
+		calli		Displacement SetARByte
+		lid			r3:w0,47h
+		addzx		rq3,rd3:rd4
+		lid			r1:w0,0
+		ld			rb1,mar1:r3:0,2
+		lsli		rq1,rq1:24
+		calli		Displacement SetCodeType
+		copyzx		rq0,rq12
+; copy code
+		lar			ar5,r5
+		lia			ar4:w0,0
+		lid			r3:w0,72
+		addzx		rd3,rd3:rd4
+		lar			ar2,r3
+CPO5:
+		ld			rq12,mar1:r0:0,4
+		st			mar2:r0:0,4,rq12
+		loop		r6,Displacement CPO5
+		lsli		rq2,rq2:5
+		addzx		rq4,rq4:rq2
+		lid			r3:w0,-1
+		addsx		rq9,rq9:rw3
+		jumpi		displacement CPO30
+; lock the process switch
+CPO32:
+		lid			r3:w0,48h
+		st			mar1:r3:0,2,rd10					; store PSO selector in the process object
+		lia			ar7:w0,SysSelector
+		lid			r12:w0,CSR_Offset
+		ld			rd11,mar3:r12:0,2
+		lid			r13:w0,0FFFFh
+		lid			r13:w1,0FF3Fh
+		and			rd11,rd11:rd13
+		st			mar3:r12:0,2,rd11
+; create export procedures table
+; MAR1 - pointer to the process object
+; MAR2 - pointer to the PSO
+; amode
+;	R0=4
+;	R1=1
+;	R3=2
+		lid			r3:w0,70h						; offset to the count of the export table
+		lid			r5:w0,0
+		ld			rw5,mar1:r3:0,2					; R5 - export table count
+		lar			ar5,r10
+		lid			r3:w0,12
+		ld			rd3,mar2:r3:0,2					; offset to the export table
+		lar			ar4,r3
+		lia			ar2:w0,80h						; pointer to export table in process object
+		or 			rw5,rw5:rw5
+		jc			r5:zf,Displacement CPO8
+; if export table not empty
+CPO7:
+		lid			r1:w0,58
+		sar			r0,ar2
+		addzx		rq0,rq0:rw1
+		lar			ar2,r0
+		xor			rq0,rq0:rq0
+		ld			rb0,mar1:r0:0,4					; reading index of object
+		calli		Displacement CreateProcessGetCodeSel
+		copyzx		rq9,rd0							; code selector
+		ld			rb2,mar1:r0:0,4					; reading control byte
+		ld			rd3,mar1:r0:0,4					; reading procedure offset
+		st			mar2:r0:0,4,rd3					; store procedure offset
+		lsli		rq2,rq2:24
+		or			rd9,rd9:rd2						; copy control byte
+		st			mar2:r0:0,4,rd9
+		loop		r5,Displacement CPO7
+; MAR1 - pointer to the import table in the process object
+CPO8:
+		lid			r3:w0,20
+		ld			rd3,mar2:r3:0,2
+		lar			ar4,r3
+		lid			r3:w0,72h
+		ld			rw5,mar1:r3:0,2					; import table count
+		lid			r2:w0,PSOSelector
+		or			rw5,rw5:rw5
+		lid			r2:w2,DynamicLinkProcedureIndex
+		lid			r1:w0,128						; table increment value
+		jc			r5:zf,Displacement CPO_End
+; if import table not empty
+; MAR2 - pointer to the import table in PSO
+; R5 - count of imported procedures
+CPO9:
+		xor			rq0,rq0:rq0
+		calli		Displacement SearchExportedProcedure
+		or			rq0,rq0:rq0					; checkin result
+		jnc			r0:zf,Displacement CPO10
+; if no procedure found
+		copyzx		rq0,rq2
+CPO10:
+		st			mar2:r0:0,4,rq0
+		sar			r0,ar2
+		addzx		rq0,rq0:rw1
+		lar			ar2,r0
+		loop		r5,Displacement CPO9
+;
+CPO_End:
+		lia			ar7:w0,SysSelector
+		lid			r12:w0,CSR_Offset
+		ld			rd11,mar3:r12:0,2
+		lid			r13:w0,0
+		lid			r13:w1,0C0h
+		or			rd11,rd11:rd13
+		st			mar3:r12:0,2,rd11
+CPO_Fail:
+		copyzx		rq0,rd10
+		lid			r3:w0,48h
+		st			mar1:r3:0,2,rd10				; store PSO selector in process object
+popd	r15
+popd	r14
+popd	r13
+popd	r12
+popd	r11
+popd	r10
+popd	r9
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popa	ar7
+popa	ar5
+popa	ar4
+popa	ar3
+popa	ar2
+ret
+;
+; Delete PSO if object for stack or code is not allocated
+CPO_DeletePSO:
+		copyzx		rq0,rd10
+		lid			r1:w0,PSOSelector
+		calli		Displacement SetParentSelector
+		memalloc	r10							; delete PSO
+		lid			r10:w0,0
+		jumpi		Displacement CPO_End
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Search exported procedure 
+; MAR1 - pointer to the procedure reference (process name/procedure name), string, up to 128 bytes
+; R0 - qword {table index,PSO Selector}
+;
+SearchExportedProcedure:
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r9
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar4
+pusha	ar5
+pusha	ar6
+pusha	ar7
+; MAR0 - pointer to the descriptor table
+; MAR1 - pointer to the string
+; MAR2 - pointer to the process object and to PSO
+; MAR3 - pointer to the MPCR
+; amode
+;	R4=4
+;	R2=2
+;	R1=1
+; check the system entry
+			lia			ar6:w0,MPCR_offset
+			lia			ar7:w0,SysSelector
+			lid			r2:w0,4553h
+			lid			r1:w0,454Bh
+			lid			r2:w1,5652h
+			lid			r1:w1,4E52h
+			lid			r2:w2,4349h
+			lid			r1:w2,4C45h
+			lid			r2:w3,45h
+			lid			r3:w0,64
+			ld			rq0,mar1:r0:0,0
+			lsli		rq0,rq0:8
+			lsri		rq0,rq0:8
+			xor			rq0,rq0:rq1
+			jnc			r0:zf,displacement SEPStart
+			ld			rq0,mar1:r3:0,3
+			xor			rq0,rq0:rq2
+			jnc			r0:zf,displacement SEPStart
+; if system entry
+			lid			r0:w0,8
+			lid			r0:w2,7
+			jumpi		displacement SEPFinish
+SEPStart:
+			sar			r5,ar2
+			lia			ar1:w0,SysSelector
+			lid			r2:w0,4
+			lid			r4:w0,0
+			ld			rd4,mar0:r2:0,2
+			lsri		rd4,rd4:8
+			lia			ar1:w0,DTSelector
+			lia			ar0:w0,7							; offset to descriptor control byte
+			lid			r1:w0,32
+; R4 - DT counter
+SEPCycle:
+			sar			r3,ar0								; store index
+			ld			rb0,mar0:r1:0,1						; reading control byte
+			lid			r2:w0,13h
+			and			rb0,rb0:rb2
+			lid			r2:w0,12h
+			xor			rb0,rb0:rb2
+			jc			r0:zf,Displacement SEP1
+SEP0:
+			loop		r4,Displacement SEPCycle
+			lid			r0:w0,0
+			jumpi		Displacement SEPEnd
+; if readable object in DT
+SEP1:
+			copyzx		rq2,rd3
+			lid			r0:w0,17
+			addzx		rd2,rd2:rw0
+			ld			rd0,mar0:r2:0,2
+			or			rd0,rd0:rd0
+			jc			r0:zf,displacement SEP0
+			lid			r0:w0,5250h
+			lsri		rd3,rd3:5							; extracting selector
+			lar			ar5,r3
+			lid			r0:w1,434Fh
+			lid			r2:w0,0
+			lar			ar4,r2
+			lid			r0:w2,5345h
+			ld			rq3,mar2:r2:0,2
+			lid			r0:w3,53h
+			xor			rq0,rq0:rq3
+			jnc			r0:zf,Displacement SEP0
+; if process object found
+			lid			r2:w0,48h
+			lid			r9:w0,0
+			ld			rd9,mar2:r2:0,2
+			or 			rq9,rq9:rq9
+			jc			r9:zf,Displacement SEP0
+; if process object found and process was created
+			lid			r8:w0,0
+			lid			r2:w0,70h
+			ld			rw8,mar2:r2:0,2
+			or			rw8,rw8:rw8
+			jc			r8:zf,Displacement SEP0
+; if object present PSO created and export table not empty
+			lia			ar4:w0,08h							;pointer to the process name
+			sar			r5,ar2								;store pointer to processname/procedurename
+SEP5:
+			ld			rb0,mar1:r4:0,4
+			ld			rb2,mar2:r4:0,4
+			xor			rb3,rb0:rb2
+			jnc			r3:zf,Displacement SEP6
+			or			rb3,rb0:rb2
+			jnc			r3:zf,Displacement SEP5
+			jumpi		Displacement SEPObjectFound
+SEP6:
+			lar			ar2,r5
+			jumpi		Displacement SEP0
+; if process found check the procedure name
+SEPObjectFound:
+			lid			r0:w0,64
+			addzx		rq6,rd5:rw0							; pointer to the procedure name
+			lid			r7:w0,80h
+SEP7:
+			lar			ar2,r6
+			lar			ar4,r7
+SEP8:
+			ld			rb0,mar1:r4:0,4
+			ld			rb2,mar2:r4:0,4
+			xor			rb3,rb0:rb2
+			jnc			r3:zf,Displacement SEP9
+			or			rb3,rb0:rb2
+			jnc			r3:zf,Displacement SEP8
+			jumpi		Displacement SEPProcedureFound
+SEP9:
+			lid			r0:w0,64
+			addzx		rq7,rd7:rw0
+			lid			r0:w0,0
+			lid			r0:w2,1
+			addzx		rq9,rq9:rq0							; increment procedure counter
+			loop		r8,Displacement SEP7
+			lar			ar2,r5
+			jumpi		Displacement SEP0
+; if object and procedure found
+SEPProcedureFound:
+			copyzx		rq0,rq9
+SEPEnd:
+			or 			rq0,rq0:rq0
+			jc			r0:zf,displacement SEPExt1
+SEPFinish:
+popa	ar7
+popa	ar6
+popa	ar5
+popa	ar4
+popa	ar2
+popa	ar1
+popa	ar0
+popd	r9
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+ret
+;
+;		Try to find procedure in the another core
+;
+SEPExt1:
+			ld			rb0,mar3:r0:0,0
+			or			rb0,rb0:rb0
+			jc			r0:zf,Displacement SEPFinish
+			lid			r1:w0,SEPSelector					; will be a message parameter
+			lar			ar0,r0
+			lid			r2:w0,0FFFFh
+			lar			ar1,r1
+			lar			ar2,r5								; restore pointer to the string
+			st			mar0:r4:0,4,rq2						; PSO selector and export entry
+			lid			r3:w0,16							; data counter
+SEPExt2:
+			ld			rq0,mar1:r4:0,4
+			st			mar0:r4:0,4,rq0
+			loop		r3,Displacement SEPExt2
+; search valid CPU
+			lia			ar1:w0,SysSelector
+			lid			r2:w0,MPCR_Offset
+			lid			r3:w0,0
+			ld			rb3,mar0:r2:0,2						; current processor number
+			lsli		rq4,rq3:24
+			or			rq1,rq1:rq4
+			lsli		rq1,rq1:32							; message parameter and message index
+			lid			r7:w0,PSOSelector
+			lid			r0:w0,1								; start CPU index
+			copyzx		rq4,rb0								; copy increment value
+SEPExtCycle:
+			xor			rb2,rb0:rb3
+			jc			r2:zf,displacement SEPExtCycleEnd
+; if not a current core
+			lid			r5:w0,DTSelector
+			lsli		rd2,rd0:24
+			or			rd5,rd5:rd2
+			lid			r2:w0,0
+			lar			ar5,r5
+			ld			rb6,mar2:r2:0,2						; reading byte from CPU
+			jc			r6:nf,displacement SEPExtCycleEnd
+; if processor found
+			lar			ar5,r7
+			lid			r2:w0,(Offset PSOImport - Offset SystemPSO) shl 2
+			lsli		rd6,rd0:24
+			or			rd6,rd6:rd7
+			st			mar2:r2:0,2,rd6
+			ld			rd6,mar2:r2:0,2
+			sendmsg		r1
+			lid			r2:w0,Offset SEPObject shl 2
+			lid			r5:w0,0FFFFh
+			lid			r5:w1,0Fh
+; waiting for answer
+SEPExt3:
+			ld			rq6,mar6:r2:0,2						; read possible entry
+			addzx		rq8,rq6:rq4
+			jnc			r8:zf,displacement SEPExt5
+			loop		r5,displacement SEPExt3
+			lid			r6:w0,0
+SEPExt5:
+			or			rq6,rq6:rq6
+			jc			r6:zf,displacement SEPExtCycleEnd
+			lsli		rd2,rd0:24
+			or			rd6,rd6:rd2
+			csli		rq1,rq6:32
+			addzx		rd1,rd1:rd4
+			jnc			r1:zf,displacement SEPExt4
+			xor			rq6,rq6:rq6
+SEPExt4:
+			copyzx		rq0,rq6
+			jumpi		displacement SEPFinish
+			
+SEPExtCycleEnd:
+			addzx		rb0,rb0:rb4							; increment CPU number
+			jnc			r0:zf,displacement SEPExtCycle
+			lid			r0:w0,0
+			jumpi		displacement SEPFinish
+
+;
+; 		Return code selector from process object
+; input:
+;	R0 - object index
+;	MAR1 - pointer to the process object
+;	R15 - length of process object
+; output:
+;	R0 - object selector /DWORD/
+;
+CreateProcessGetCodeSel:
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+			lid			r3:w0,70h
+			lid			r2:w0,0
+			ld			rw2,mar1:r3:0,2						; ECnt
+			lid			r4:w0,0
+			lid			r3:w0,72h
+			ld			rw4,mar1:r3:0,2						; ICnt
+			lid			r3:w0,80h
+			lsli		rd2,rw2:6
+			addzx		rq3,rw3:rd2
+			lsli		rd4,rw4:7
+			addzx		rq3,rd3:rd4							; pointer to the first code object
+			lid			r1:w0,0								; index of object
+CPGCS0:
+			xor			rw2,rw1:rw0
+			jc			r2:zf,Displacement CPGCS2
+; if we need to set pointer to the next position of code object
+			lid			r4:w0,40h
+			addzx		rq2,rq3:rw4
+			subzx		rq4,rq15:rq2
+			jnc			r4:sf,Displacement CPGCS1
+; if object expired
+			lid			r0:w0,0
+			jumpi		Displacement CPGCSEnd
+; if Object can be readed
+CPGCS1:
+			ld			rd4,mar1:r2:0,2						; reading length of current object
+			lid			r2:w0,1
+			lsli		rq4,rd4:5
+			addzx		rq3,rq3:rq4
+			addzx		rq1,rq1:rq2
+			jumpi		Displacement CPGCS0
+; if object found
+CPGCS2:
+			lid			r4:w0,3Ch
+			addzx		rq2,rq3:rq4
+			lid			r0:w0,0
+			ld			rd0,mar1:r2:0,2
+; end of search selector
+CPGCSEnd:
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+ret
+
+		align 32
+SEPObject:
+	byte array 160

@@ -1,0 +1,293 @@
+;
+; MAR0 - file catalog object
+; MAR1 - pointer to the data object
+; MAR2 - pointer to CRC registers
+; MAR3 - pointer to the filename (command line)
+; MAR4 - pointer to the Flash data
+;
+; R15 - length of file in qwords
+; R8 - CRC register
+;
+; constants
+; R1=256
+;
+		align 4
+FileNotFound:
+	byte 'File not found',0dh,0ah,0
+		align 4
+RFNoMemory:
+	byte 'Not enough memory',0dh,0ah,0
+		align 4
+CRCErrorMsg:
+	byte 'CRC Error',0dh,0ah,0
+		align 4
+RFOKString:
+	byte 'File readed into object: ',0
+		
+		align 4
+ReadFile:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8 
+pushd	r15
+pushd	r16														;FlashCtrlSelector
+pushd	r17														;FlashDataSelector
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar3
+pusha	ar4
+pusha	ar5
+pusha	ar6
+pusha	ar7
+pusha	ar8
+pusha	ar9
+; prepare selectors
+			lid			r0:w0,(Offset CmdStates shl 2)+3
+			ld			rb1,mar6:r0:0,2
+			lsli		rd1,rd1:24
+			lid			r16:w0,FlashCtrlSelector
+			or			rd16,rd16:rd1
+			lid			r17:w0,FlashDataSelector
+			or			rd17,rd17:rd1
+			ld			rb0,mar3:r0:0,0
+			or			rb0,rb0:rb0
+			jc			r0:zf,Displacement RFEnd
+; if filename present
+			lar			ar1,r16
+			lid			r0:w0,2
+			lid			r6:w0,0bh								; read instruction
+			st			mar0:r0:0,2,rb6
+			lar			ar1,r17
+			lia			ar0:w0,0
+			lid			r1:w0,1000h
+			lid			r3:w0,1000h
+RF2:
+			sar			r4,ar0									; store pointer to file table
+			ld			rw0,mar0:r1:0,1							; lower link index of data block
+			or			rw0,rw0:rw0
+			jc			r0:zf,Displacement RF3
+			loop		r3,Displacement RF2
+; if file not found
+			lid			r0:w0,Offset FileNotFound shl 2
+			jumpi		Displacement RFMsgEnd
+; if first block found
+RF3:
+			sar			r5,ar0
+			lar			ar0,r4
+			iar			ar0:32									; offset to the first byte of filename
+			sar			r6,ar6									; store start of filename
+RF4:
+			ld			rb0,mar0:r3:0,4							; byte from file catalog
+			ld			rb8,mar3:r3:0,4							; byte from filename
+			xor			rb7,rb0:rb8
+			jnc			r7:zf,Displacement RF5
+			or			rb7,rb0:rb8
+			jnc			r7:zf,Displacement RF4
+; if file find
+			jumpi		Displacement RFFilePresent
+; if filenames not matched
+RF5:
+			lar			ar0,r5									; restore pointer to the FAT
+			lar			ar6,r6									; restore pointer to the filename
+			loop		r3,Displacement RF2
+			lid			r0:w0,Offset FileNotFound shl 2
+RFMsgEnd:
+			sar			r1,ar13
+			calli		Displacement OutString
+RFEnd:
+popa	ar9
+popa	ar8
+popa	ar7
+popa	ar6
+popa	ar5
+popa	ar4
+popa	ar3
+popa	ar2
+popa	ar1
+popa	ar0
+popd	r17
+popd	r16
+popd	r15
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if file present then read the length of file and allocate block
+RFFilePresent:
+			lar			ar0,r4									; restore pointer to the FAT record
+			lid			r0:w0,8									; file length position
+			addzx		rd0,rw0:rd4
+			lid			r3:w0,0
+			ld			rd3,mar0:r0:0,2
+			copyzx		rd15,rd3								; copy length of data
+			lsri		rd15,rd15:3								; size in qwords
+			lsli		rq3,rq3:32-5
+			memalloc	r3
+			or			rd3,rd3:rd3
+			jnc			r3:zf,Displacement RF6
+; if memory not allocated
+			lid			r0:w0,Offset RFNoMemory shl 2
+			jumpi		Displacement RFMsgEnd
+; if memory block allocated
+RF6:
+			lar			ar3,r3
+			lia			ar2:w0,0
+			lia			ar5:w0,IOSelector
+			lia			ar4:w0,18h
+; calculate CRC for file header
+			lid			r3:w0,0FFFFh
+			st			mar2:r6:0,0,rd3
+			lid			r0:w0,4
+			addzx		rd0,rd0:rd4
+			lar			ar0,r0									; pointer to buffer
+			lid			r3:w0,31
+			lia			ar4:w0,1Ch
+			ld			rd8,mar0:r3:0,4							; CRC
+RF7:
+			ld			rq0,mar0:r3:0,4
+			st			mar2:r6:0,0,rb0							;0
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;1
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;2
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;3
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;4
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;5
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;6
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;7
+			loop		r3,Displacement RF7
+; check Flash ready
+			lar			ar9,r16
+			lid			r6:w0,5
+			lid			r0:w0,2
+			st			mar4:r0:0,2,rb6
+			lar			ar9,r17
+			lid			r0:w0,0
+RF8:
+			ld			rb6,mar4:r0:0,2
+			lsri		rb6,rb6:1
+			jc			r6:df,Displacement RF8
+			lar			ar9,r16
+			lid			r0:w0,2
+			lid			r6:w0,0bh								; read instruction
+			st			mar4:r0:0,2,rb6
+			lar			ar9,r17
+; transfer data from flash to the object and calculate CRC for data
+			copyzx		rq0,rd4
+			lid			r3:w0,100h
+			addzx		rd0,rd0:rw3								; address of first data byte
+			lar			ar8,r0
+			lid			r3:w0,480
+			subzx		rd0,rd15:rw3
+			jc			r0:cf,Displacement RF9
+			copyzx		rd3,rd15								; if length less than first flash data block
+RF9:
+			subzx		rd15,rd15:rw3							; decrease data count
+RF10:
+			ld			rq0,mar4:r3:0,4
+			st			mar1:r3:0,4,rq0
+			st			mar2:r6:0,0,rb0							;0
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;1
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;2
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;3
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;4
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;5
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;6
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;7
+			loop		r3,Displacement RF10
+			lia			ar4:w0,18h
+			ld			rd0,mar2:r6:0,0							; CRC result
+			xor			rd0,rd0:rd8
+			jc			r0:zf,Displacement RF11
+; if CRC not equal
+RFCRCError:
+			sar			r0,ar3
+			memalloc	r0
+			lid			r0:w0,Offset CRCErrorMsg shl 2
+			jumpi		Displacement RFMsgEnd
+; cycle read data
+RF11:
+			or			rd15,rd15:rd15
+			jc			r15:zf,Displacement RFOK
+; prepare to read next block. Read link index and CRC from flash
+			lar			ar0,r4
+			iar			ar0:2
+			lid			r4:w0,0
+			ld			rw4,mar0:r6:0,0							; read upper link index from FAT
+			lsli		rq4,rq4:12								; address to the next position in FAT
+			lar			ar8,r4
+			iar			ar8:4									; address to CRC
+			ld			rd8,mar4:r3:0,4							; reading CRC
+; setting CRC calculator
+			lia			ar4:w0,18h
+			lid			r3:w0,0FFFFh
+			st			mar2:r6:0,0,rd3
+			lia			ar4:w0,1Ch
+; calculate length of readed data
+			lid			r3:w0,511
+			subzx		rd7,rd15:rw3
+			jc			r7:cf,Displacement RF13
+			copyzx		rd3,rd15
+RF13:
+			subzx		rd15,rd15:rw3							; decrease data count
+RF14:
+			ld			rq0,mar4:r3:0,4
+			st			mar1:r3:0,4,rq0
+			st			mar2:r6:0,0,rb0							;0
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;1
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;2
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;3
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;4
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;5
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;6
+			lsri		rq0,rq0:8
+			st			mar2:r6:0,0,rb0							;7
+			loop		r3,Displacement RF14
+			lia			ar4:w0,18h
+			ld			rd0,mar2:r6:0,0							; CRC result
+			xor			rd0,rd0:rd8
+			jnc			r0:zf,Displacement RFCRCError
+			jumpi		Displacement RF11
+; if all data readed
+RFOK:
+			lid			r0:w0,Offset RFOKString shl 2
+			sar			r1,ar13
+			calli		Displacement OutString
+			lid			r0:w0,Offset String1 shl 2
+			sar			r2,ar3
+			calli		Displacement IntToHex
+			calli		Displacement OutString
+			lid			r0:w0,Offset CRString shl 2
+			calli		Displacement OutString
+			jumpi		Displacement RFEnd

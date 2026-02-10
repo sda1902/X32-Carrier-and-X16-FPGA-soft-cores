@@ -1,0 +1,76 @@
+;
+;			Stop process
+;
+StopProcess:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pusha	ar1
+pusha	ar2
+pusha	ar3
+		calli		Displacement ReadHexParam
+		or			rd0,rd0:rd0
+		jnc			r0:zf,Displacement SP2
+; if no params entered
+SP1:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if selector entered
+SP2:
+		lid			r2:w0,5250h
+		lia			ar2:w0,0
+		lid			r2:w1,434Fh
+		lar			ar3,r0
+		lid			r2:w2,5345h
+		ld			rq3,mar1:r3:0,0
+		lid			r2:w3,53h
+		xor			rq2,rq2:rq3
+		jnc			r2:zf,Displacement SP1
+; if signature present
+		lid			r1:w0,process_PSO_offset
+		ld			rd2,mar1:r1:0,2					; reading PSO Selector
+		or			rd2,rd2:rd2
+		jc			r2:zf,Displacement SP1
+; if selector not zero
+		lia			ar2:w0,0
+		lia			ar3:w0,ProcTableSelector
+		lid			r3:w0,16
+SP5:
+		sar			r4,ar2							; store position
+		ld			rd1,mar1:r0:0,4
+		xor			rd1,rd1:rd2
+		jc			r1:zf,Displacement SP6
+		loop		r3,Displacement SP5
+		jumpi		Displacement SP1
+; if entry present
+SP6:
+		lar			ar2,r4
+		st			mar1:r0:0,0,rd1
+		calli		Displacement AlignProcTable
+		lid			r0:w0,(Offset CmdStates shl 2)+3
+		ld			rb1,mar6:r0:0,2
+		lsli		rd1,rd1:24
+		jc			r1:zf,Displacement SP7
+		lid			r0:w0,EchoStreamSelector
+		or			rd1,rd1:rd0
+		lar			ar1,r1
+SP7:
+		lid			r0:w0,8
+		lid			r1:w0,53h
+		st			mar0:r0:0,2,rb1
+		lid			r2:w0,50h
+		st			mar0:r0:0,2,rb2
+		lid			r3:w0,0dh
+		st			mar0:r0:0,2,rb3
+		lid			r1:w0,0ah
+		st			mar0:r0:0,2,rb1
+		jumpi		Displacement SP1

@@ -1,0 +1,53 @@
+;
+;		Read breakpoint codes
+;
+ReadBreakpoint:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r5
+pushd	r6
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar3
+; stop the process switch
+		lia			ar3:w0,SysSelector
+		lid			r6:w0,CSR_Offset+2
+		lid			r0:w0,0
+		st			mar1:r6:0,2,rb0
+		lia			ar1:w0,BKPTSelector
+		lar			ar0,r0
+; output entry count
+		lid			r6:w0,Offset BKPTPtr shl 2
+		sar			r1,ar13
+		lid			r2:w0,0
+		ld			rb2,mar6:r6:0,2
+		lsri		rb2,rb2:3						; count in qwords
+		lid			r0:w0,1
+		addzx		rw5,rb2:rb0
+RBkpt1:
+		lid			r0:w0,Offset String1 shl 2
+		calli		Displacement IntToHex
+		calli		Displacement OutString
+		lid			r0:w0,Offset CRString shl 2
+		calli		Displacement OutString
+		ld			rq2,mar0:r2:0,4
+		loop		r5,displacement RBkpt1
+; reset pointers
+		lid			r0:w0,0
+		st			mar6:r6:0,2,rw0
+; enable process switch
+		lid			r6:w0,CSR_Offset+2
+		lid			r0:w0,0F0h
+		st			mar1:r6:0,2,rb0
+popa	ar3
+popa	ar2
+popa	ar1
+popa	ar0
+popd	r6
+popd	r5
+popd	r2
+popd	r1
+popd	r0
+ret

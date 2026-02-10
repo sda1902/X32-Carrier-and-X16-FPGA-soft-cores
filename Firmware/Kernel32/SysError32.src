@@ -1,0 +1,96 @@
+;
+;		System error processing
+;
+				align 8
+SystemError:
+			lid			r2:w0,CPSR_Offset
+			lia			ar0:w0,ESR_Offset
+			lia			ar1:w0,SysSelector
+			ld			rd8,mar0:r2:0,2					; reading system PSO selector
+			lia			ar3:w0,ErrorSelector
+			lid			r3:w0,Offset ErrorPtr shl 2
+			lid			r2:w0,0
+			ld			rb2,mar6:r3:0,2					; reading table pointer
+			lid			r4:w0,01F8h						; offset mask
+			lsli		rd2,rd2:3
+			lid			r1:w0,8
+			lid			r6:w0,0							; error flag form system process
+			lar			ar5,r8							; mar2 - pointer to the return selector in PSO
+			lid			r7:w0,ContextStackOffset_PSO_position
+			ld			rd0,mar2:r7:0,2					; reading context stack base offset
+			lid			r7:w0,ContextStackPointer_PSO_position
+			lar			ar4,r0
+			lid			r9:w0,-4
+			ld			rd7,mar2:r7:0,2					; reading context stack pointer
+			addsx		rd7,rd7:rb9
+			lid			r9:w0,0
+			ld			rd9,mar2:r7:0,3					; reading return PSO selector from current context stack
+			lia			ar7:w0,ProcTableSelector		; mar3 pointer to the task table
+; read error register cycle
+SE1:
+			ld			rq0,mar0:r1:0,0					; reading error code
+			copyzx		rq5,rq0
+			csli		rq5,rq5:8
+			or			rb5,rb5:rb5
+			jc			r5:zf,Displacement SE7			; if all codes fetched
+			st			mar1:r2:0,2,rq0					; store code into table
+			addzx		rq2,rq2:rb1
+			and			rq2,rq2:rw4						; promote pointer
+			lsli		rq0,rq0:8
+			lsri		rq0,rq0:40						; extract process selector
+			xor			rd5,rd0:rd8
+			jnc			r5:zf,Displacement SE3
+			or			rb6,rb6:rb1						; flag for system process
+			jumpi		Displacement SE1
+; if non-system process cause error then remove him from process table
+SE3:
+			xor			rd5,rd0:rd9						; checkin return PSO selector
+			jnc			r5:zf,Displacement SE4
+			st			mar2:r7:0,3,rd8					; setting system PSO selector as a return selector
+;
+; remove process from process table
+;
+SE4:
+			lid			r10:w0,16
+			lia			ar6:w0,0
+SE5:
+			sar			r3,ar6
+			ld			rd5,mar3:r10:0,4				; reading next position
+			xor			rd5,rd5:rd0
+			jnc			r5:zf,Displacement SE6
+; if process must be deleted
+			st			mar3:r3:0,2,rd5
+			calli		Displacement AlignProcTable
+SE6:
+			loop		r10,Displacement SE5
+			jumpi		Displacement SE1
+; end of error reading, checkin system error flag
+SE7:
+			lsri		rw2,rw2:3
+			lid			r3:w0,Offset ErrorPtr shl 2
+			st			mar6:r3:0,2,rb2
+			or			rb6,rb6:rb6
+			jnc			r6:zf,Displacement SE8
+			endmsg
+; if system process cause error then reset context stack pointer and reset the CSR
+SE8:
+			lia			ar7:w0,PSOSelector
+			lia			ar6:w0,ContextStackOffset_PSO_position
+			lid			r0:w0,400
+			st			mar3:r10:0,4,rd0
+			lid			r0:w0,2976
+			st			mar3:r10:0,4,rd0
+			lid			r0:w0,0
+			st			mar3:r10:0,4,rd0
+; reset stack pointer
+			lia			ar15:w0,StackSelector
+			lia			ar14:w0,StackOffset
+; reset the CSR
+			lid			r3:w0,CSR_Offset
+			lid			r4:w0,0
+			lid			r4:w1,0F0h		
+			st			mar0:r3:0,2,rd4
+			jumpi		Displacement MainRestart
+	
+ErrorPtr:
+	dword		0
