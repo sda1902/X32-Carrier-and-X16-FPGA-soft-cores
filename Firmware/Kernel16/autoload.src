@@ -1,0 +1,110 @@
+		amode	r0,0
+		amode	r2,2
+		amode	r4,4
+		amode	r7,2
+		amode	r9,2
+		amode	r14,2
+		li		r0,FlashCtrlSelector
+		lar		ar1,r0
+		li		r2,2
+		li		r1,0bh
+		st		mar0:r2,r1				; read array command
+		li		r0,IOSelector
+		lar		ar1,r0
+		li		r3,FlashDataSelector
+		lar		ar3,r3
+		li		r4,64
+		lar		ar2,r4
+		sar		r6,ar13
+		lar		ar7,r6
+		li		r8,Offset ReadFile shl 1
+		li		r9,Offset String1 shl 1
+		li		r10,Offset AutoParamBlock shl 1
+		li		r11,Offset CreateProcess shl 1
+		li		r12,Offset RunProcess shl 1
+		li		r13,Offset IntToHex shl 1
+		li		r8,Offset ReadFile shr 7
+		li		r9,Offset String1 shr 7
+		li		r10,Offset AutoParamBlock shr 7
+		li		r11,Offset CreateProcess shr 7
+		li		r12,Offset RunProcess shr 7
+		li		r13,Offset IntToHex shr 7
+		copy	r14,r14
+		li		r14,60
+		copy	r8,r8
+		copy	r9,r9
+		copy	r11,r11
+		copy	r12,r12
+		copy	r13,r13
+		add		r14,r14:r10
+AutoloadCycle:
+		li		r0,0
+		sar		r1,ar2
+		li		r0,10h
+		xor		r0,r0:r1
+		jcl		r0:zf,Displacement EndAutoload
+		lar		ar12,r10
+		li		r1,8
+; transfer record from flash to the param string
+AlC1:
+		ldq		r2,mar1:r4
+		st		mar6:r4,r2
+		loop	r1,Displacement AlC1
+; checking valid entry
+		li		r4,1
+		lar		ar6,r10
+		ldb		r3,mar3:r0
+		add		r3,r3:r4
+		jcl		r3:zf,Displacement EndAutoload
+; if filename present
+		li		r0,0
+		st		mar6:r9,r0					; null-termination before read file
+		call	r8
+		ldb		r1,mar6:r9
+		or		r1,r0:r1
+		jcl		r1:zf,Displacement AutoloadCycle
+; if selector present
+		li		r15,0
+		ldd		r15,mar6:r14				; reading run parameter
+		or		r15,r15:r15
+		jcl		r15:zf,displacement Auto2
+; if parameter present
+		lar		ar12,r9
+Auto1:
+		ldb		r0,mar6:r4
+		or		r0,r0:r0
+		jc		r0:nzf,displacement Auto1
+; end of string found
+		li		r1,-1
+		sar		r0,ar12
+		add		r7,r0:r1
+		lar		ar12,r7						; offset to the first byte after selector value
+		li		r0,20h
+		st		mar6:r4,r0					; store space symbol
+		sar		r0,ar12
+		sar		r1,ar13
+		copy	r2,r15						; parameter
+		call	r13
+Auto2:
+		lar		ar6,r9
+		call	r11
+; check for run parameter
+		li		r2,58
+		add		r2,r2:r10
+		ldb		r0,mar6:r2
+		or		r0,r0:r0
+		jcl		r0:zf,displacement AutoloadCycle
+		li		r0,0
+		st		mar6:r7,r0
+		lar		ar6,r9
+		call	r12
+		jnear	Displacement AutoloadCycle
+		
+		align	8
+AutoParamBlock:
+		byte array 64
+
+;
+; Autoload termination
+;
+EndAutoload:

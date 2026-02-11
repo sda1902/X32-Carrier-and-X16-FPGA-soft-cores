@@ -1,0 +1,2051 @@
+;**************************************************************************************************
+;**************************************************************************************************
+;
+;					KERNEL
+;
+;				X16 instruction set
+;				
+;**************************************************************************************************
+;**************************************************************************************************
+
+include d:\work\cpu\soft\Core instruction set.src
+include d:\work\cpu\soft\Definitions.src
+
+define DTLength=((Offset EndOfDTable)-(Offset ControlBlock)) shr 4
+define ProcTableLength=16
+define DTCleaningLimit=4
+define BootMemoryLength=65536
+define ControlBlockPosition=65536-(4096+((Offset EndOfControlBlock - Offset ControlBlock) shl 1))
+define StackOffset=3072
+
+timestamp Build
+
+define DynamicLinkProcedureIndex=4
+
+define CMDNumber=22
+
+Object Kernel16 (granularity=2, iset=coreone)
+;
+; Start of code
+;
+Start:
+		li			r0,Offset ControlBlock shl 1
+		li			r1,BootMemoryLength-4096-8
+		li			r0,Offset ControlBlock shr 7
+		li			r1,(BootMemoryLength-4096-8) shr 8
+		li			r0,Offset ControlBlock shr 15
+		lar			ar0,r0
+		li			r1,(BootMemoryLength-4096-8) shr 16
+		li			r2,((Offset EndOfControlBlock) - (Offset ControlBlock)) shr 2
+		amode		r0,5
+		lar			ar2,r1
+		li			r2,((Offset EndOfControlBlock) - (Offset ControlBlock)) shr 10
+; clear control block
+		li			r0,0
+		size		r0,qword
+ClearControlBlock:
+		st			mar1:r0,r0
+		loop		r2,displacement ClearControlBlock
+; move control block
+		li			r1,ControlBlockPosition
+		li			r2,((Offset EndOfDataBlock) - (Offset ControlBlock)) shr 2
+		amode		r0,4
+		li			r1,ControlBlockPosition shr 8
+		li			r2,((Offset EndOfDataBlock) - (Offset ControlBlock)) shr 10
+		li			r1,ControlBlockPosition shr 16
+		lar			ar2,r1
+ControlBlockMovingCycle:
+		ldq			r3,mar0:r0
+		st			mar1:r0,r3
+		loop		r2,Displacement ControlBlockMovingCycle
+; preset pointer to the temporary descriptor table
+		lsri		r1:5
+		amode		r0,2
+		amode		r5,2
+		li			r0,0
+		st			mar5:r0,r1
+		li			r0,5
+		li			r1,DTLength
+		st			mar5:r0,r1
+		li			r0,6
+		li			r1,DTLength shr 8
+		st			mar5:r0,r1
+		li			r14,0Fh
+A0:
+		nop
+		loop		r14,Displacement A0
+; setting stack pointer
+		li			r8,StackSelector
+		li			r9,StackOffset
+		lar			ar15,r8
+		li			r9,StackOffset shr 8
+		lar			ar14,r9
+		size		r1,qword
+		st			mar7:r0,r1
+; programming system timer for 1/128s interval
+		li			r5,PMCR_Offset+2
+		li			r1,0ffh
+		li			r0,0
+		li			r2,Offset Integer2Single shl 1
+		ldw			r0,mar5:r5							; reading frequency scaler
+		li			r1,0
+		lsri		r0:1
+		li			r2,Offset Integer2Single shr 7
+		and			r0,r0:r1
+		size		r0,qword
+		call		r2									; convert frequency scaler to single float
+		copy		r6,r0
+		li			r0,80h
+		li			r2,Offset Single2Integer shl 1
+		li			r0,96h
+		li			r0,18h
+		li			r2,Offset Single2Integer shr 7
+		li			r0,47h
+		fmul		r0,r0:r6
+		call		r2
+		li			r3,IOSelector
+		lar			ar1,r3
+		li			r5,10h
+		li			r1,3
+		fieldcopyi	r0,r1:30:2
+		size		r0,dword
+		st			mar0:r5,r0
+; programming system UART, baud rate 921600 or 115200
+		li			r0,0CDh
+		li			r0,0CCh
+		li			r0,0ACh
+		li			r0,40h
+		fmul		r0,r0:r6
+		call		r2
+		size		r0,word
+		li			r5,3
+		ldb			r2,mar0:r5							; reading platform ID and UART bit
+		li			r3,80h
+		and			r2,r2:r3
+		jc			r2:zf,Displacement UART0
+		lsli		r0:3
+UART0:
+		li			r5,10
+		st			mar0:r5,r0
+; reading system memory size
+		li			r5,4
+		li			r10,0
+		ldd			r10,mar0:r5							; reading value in 64Kbyte paragraphs
+		copy		r11,r10
+		size		r10,qword
+		lsli		r10:13								; counter in qwords
+; set the memory descriptor and free space descriptor
+		li			r0,DTSelector
+		lsli		r11:11
+		lar			ar3,r0
+		li			r5,SDRAMSelector
+		size		r5,word
+		li			r0,20
+		lsli		r5:5
+		add			r5,r5:r0
+		st			mar1:r5,r11
+		li			r5,SecondFreeSelector
+		size		r5,word
+		lsli		r5:5
+		add			r5,r5:r0
+		st			mar1:r5,r11
+; Start pause before memory test
+		li			r0,0
+		li			r1,14h
+		amode		r1,2
+		li			r7,0Fh
+StartDelay:
+		ldw			r4,mar0:r1
+		lsri		r4:7
+		st			mar0:r0,r4
+		xor 		r8,r7:r4
+		jc			r8:nzf,Displacement StartDelay
+		copy		r11,r10
+		li			r4,55h
+		st			mar0:r0,r4
+;
+; SDRAM testing
+;
+		li			r9,SDRAMSelector
+		li			r14,0EFh
+		li			r14,0CDh
+		lar			ar3,r9
+		li			r14,0ABh
+		li			r8,0
+		li			r14,89h
+		li			r14,67h
+		lar			ar2,r8
+		li			r14,45h
+		amode		r12,4
+		li			r14,23h
+		li			r14,1
+		copy		r12,r14
+		
+SDRAMWriteCycle:
+		st			mar1:r12,r12					; store test value
+		add			r12,r12:r14						; new value
+		loop		r10,Displacement SDRAMWriteCycle
+; prepare read operation
+		lar			ar2,r8
+		copy		r12,r14
+		li			r4,0AAh
+		st			mar0:r0,r4
+SDRAMReadCycle:
+		ldq			r13,mar1:r12
+		xor			r13,r13:r12
+		add			r12,r12:r14
+		jc			r13:zf,Displacement SDC1
+; if error detected
+		li			r1,0Eh
+		st			mar0:r0,r1
+SDCError:
+		jnear		Displacement SDCError
+SDC1:
+		loop		r11,Displacement SDRAMReadCycle
+SDRAMBypass:
+		li			r1,0h
+		st			mar0:r0,r1
+; initialize code selector register
+		li			r1,CodeSelector
+		lar			ar13,r1
+; output platform type string
+		li			r0,Offset PlatformString shl 1
+		li			r2,Offset OutString shl 1
+		li			r1,CodeSelector
+		li			r0,Offset PlatformString shr 7
+		li			r2,Offset OutString shr 7
+		call		r2
+		li			r0,3
+		li			r5,0
+		li			r4,7
+		ldb			r5,mar0:r0								; reading platform ID
+		and			r5,r5:r4
+		size		r5,word
+		lsli		r5:1
+		li			r0,Offset PlatformTable shl 1
+		li			r0,Offset PlatformTable shr 7
+		add			r0,r0:r5
+		ldw			r0,mar6:r0								; offset to the platform ID string
+		call		r2
+		li			r0,Offset CRString shl 1
+		li			r0,Offset CRString shr 7
+		call		r2
+; output core type string
+		li			r0,Offset CoreString shl 1
+		li			r0,Offset CoreString shr 7
+		call		r2
+		li			r0,MPCR_offset+1
+		li			r5,0
+		ldb			r5,mar5:r0
+		li			r15,0Fh
+		size		r5,word
+		and			r5,r5:r15
+		lsli		r5:1
+		li			r0,Offset CoreTable shl 1
+		li			r0,Offset CoreTable shr 7
+		add			r0,r0:r5
+		ldw			r0,mar6:r0								; offset to the platform ID string
+		call		r2
+		li			r0,Offset CRString shl 1
+		li			r0,Offset CRString shr 7
+		call		r2
+; output Kernel built
+		li			r0,Offset BuiltString shl 1
+		li			r0,Offset BuiltString shr 7
+		call		r2
+; output frequency
+		li			r0,Offset ClockString shl 1
+		li			r0,Offset ClockString shr 7
+		call		r2
+		li			r5,PMCR_Offset+2
+		li			r3,Offset IntToStr shl 1
+		li			r0,Offset String1 shl 1
+		li			r2,0
+		ldw			r2,mar5:r5
+		lsri		r2:2
+		li			r4,7Fh
+		and			r2,r2:r4
+		copy		r4,r2
+		lsli		r4:3
+		lsli		r2:1
+		add			r2,r2:r4
+		li			r3,Offset IntToStr shr 7
+		li			r0,Offset String1 shr 7
+		call		r3
+		li			r2,Offset OutString shl 1
+		li			r2,Offset OutString shr 7
+		call		r2
+		li			r0,Offset MHZString shl 1
+		li			r0,Offset MHZString shr 7
+		call		r2
+; programming CPSR
+		li			r5,CPSR_offset
+		li			r4,PSOSelector
+		size		r4,dword
+		st			mar5:r5,r4
+; programming CSR
+		li			r5,CSR_offset
+		li			r4,0
+		li			r4,0
+		li			r4,0F0h
+		li			r4,0
+		st			mar5:r5,r4
+; programming INTCR
+		li			r4,INTSelector
+		li			r5,INTCR_offset
+		li			r4,0
+		li			r4,0
+		li			r4,80h
+		li			r4,16
+		st			mar5:r5,r4
+; startup context controller
+		li			r5,2
+		li			r4,0
+		li			r0,0
+		li			r4,0
+		ldb			r0,mar0:r5				; reading CPU number from strapon
+		li			r4,0
+		li			r5,MPCR_offset
+		li			r4,80h
+		or			r4,r4:r0
+		st			mar5:r5,r4
+		li			r0,3
+		add			r5,r0:r5
+		li			r2,7
+Wait0:
+		ldb			r0,mar5:r5
+		and			r3,r0:r2
+		xor			r4,r3:r2
+		jc			r4:nzf,displacement Wait0
+; initialize process switch 
+		li			r0,ProcTableSelector
+		lar			ar1,r0
+		li			r1,PSOSelector
+		size		r1,dword
+		amode		r2,2
+		li			r2,0
+		st			mar0:r2,r1
+		li			r4,ProcTableSelector
+		li			r4,0
+		li			r4,0
+		li			r4,80h
+		li			r4,0
+		li			r5,PLR_offset
+		li			r4,0
+		li			r4,16
+		st			mar5:r5,r4
+		li			r5,PTR_offset
+		li			r4,2000
+		li			r4,2000 shr 8
+		st			mar5:r5,r4
+; reading free memory size
+		li			r5,TFMR_offset
+		ldq			r2,mar5:r5
+		lsli		r2:5
+		li			r0,(Offset String1) shl 1
+		li			r1,CodeSelector
+		li			r3,(Offset IntToStr) shl 1
+		li			r0,(Offset String1) shr 7
+		li			r3,(Offset IntToStr) shr 7
+		call		r3
+		li			r2,Offset OutString shl 1
+		li			r2,Offset OutString shr 7
+		call		r2
+		li			r0,(Offset String2) shl 1
+		li			r0,(Offset String2) shr 7
+		call		r2
+		
+; reading  flash ID to flash detection
+		li			r2,FlashCtrlSelector
+		lar			ar1,r2
+		li			r3,FlashDataSelector
+		lar			ar3,r3
+		li			r1,0
+		amode		r1,2
+		li			r2,2
+		amode 		r2,2
+		li			r3,90h
+		st			mar0:r2,r3
+		ldw			r3,mar1:r1
+		or			r3,r3:r3
+		jcl			r3:zf,Displacement MainRestart
+
+;
+; autoload process
+;
+include autoload.src
+
+; setting MAR3 to input string
+MainRestart:
+		amode		r0,2
+		li			r0,IOSelector
+		lar			ar1,r0
+		li			r6,CodeSelector
+		li			r4,(Offset InputString) shl 1
+		lar			ar7,r6
+		li			r5,0
+		li			r4,(Offset InputString) shr 7
+		lar			ar6,r4
+		amode		r5,0
+		st			mar3:r5,r5								; zero byte at the beginning
+		li			r7,7
+		lar			ar2,r7
+		li			r8,DTSelector
+		lar			ar3,r8
+		li			r7,0
+		li			r8,0
+		size		r7,dword
+		size		r8,dword
+		li			r9,32
+		amode		r1,2
+		amode		r7,2
+		amode		r9,1
+		amode		r11,0
+		amode		r12,2
+		amode		r13,3
+		amode		r14,4
+		li			r0,SysSelector
+		lar			ar5,r0
+		li			r12,DTR_Offset+4
+		lar			ar4,r7
+		li			r11,0
+		ldd			r11,mar2:r12
+		li			r10,(Offset InputString) shl 1
+		lsri		r11:8
+		li			r10,(Offset InputString) shr 7
+		size		r10,qword
+		li			r0,CommandStreamSelector
+		lar			ar9,r0
+		li			r1,EchoStreamSelector
+		lar			ar11,r1
+		amode		r2,4
+		li			r0,Offset CmdStates shl 1
+		li			r0,Offset CmdStates shr 7
+		size		r1,qword
+		xor			r1,r1:r1
+		st			mar6:r0,r1							; zero states
+		
+		
+;==================================================================================================
+;					Main cycle
+;
+; R0	variable						2
+; R1 	variable						2
+; R2	variable						4
+; R3	variable						x
+; R4	variable						x
+; R5	variable						0
+; R6	variable						x
+; R7	counter of free DT entries		2
+; R8	counter of free segments		x
+; R9	constant 32 					1
+; R10	Offset InputString				x
+; R11	DT entries counter				0
+; R12	variable						2
+; R13	variable						3
+; R14	variable						4
+; R15	variable						x
+;	MAR0
+; AR0	undefined
+; AR1	IO Selector
+;	MAR1
+; AR2	DT pointer
+; AR3	DT Selector
+;	MAR2
+; AR4	0
+; AR5	System Selector
+;	MAR3
+; AR6   UART Input string pointer
+; AR7	Code Selector
+; 	MAR4
+; AR8	variable
+; AR9	remote command stream selector / input command stream
+;	MAR5
+; AR10	variable
+; AR11	echo stream selector / report echo selector
+;	MAR6
+; AR12	command table addressing
+; AR13	Code selector
+;	MAR7
+; stack pointer
+;==================================================================================================
+MainCycle:
+		xor			r0,r0:r0
+		li			r0,0
+		amode		r0,2
+; output led tick
+		xor			r1,r1:r1
+		ldb			r1,mar0:r0
+		li			r0,14h
+		ldw			r2,mar0:r0
+		copy		r13,r2
+		lsri		r2:7
+		fieldcopyi	r1,r2:0:1
+		li			r0,0
+		st			mar0:r0,r1
+;-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+; check the echo stream
+		li			r0,EchoStreamSelector
+		lar			ar11,r0
+		li			r0,1
+		li			r2,0
+		ldw			r2,mar5:r0
+		or			r2,r2:r2
+		li			r0,0
+		jcl			r2:zf,Displacement CheckPrompt
+		li			r1,0Eh							; tx fifo count offset
+		li			r4,500
+		size		r2,word
+		li			r4,500 shr 8
+		ldw			r3,mar0:r1
+		neg			r3
+		add			r3,r3:r4						; rest of fifo free space
+		jcl			r3:zf,displacement CheckPrompt
+		copy		r4,r3
+		neg			r4
+		li			r1,8
+		add			r4,r4:r2
+		jc			r4:ncf,displacement EchoCycle
+		copy		r2,r3
+EchoCycle:
+		ldb			r3,mar5:r0
+		st			mar0:r1,r3
+		loop		r2,Displacement EchoCycle
+;-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+; check prompt repeating
+CheckPrompt:
+		sar			r0,ar6
+		xor			r0,r0:r10
+		jcl			r0:nzf,Displacement MC_UART0
+; check breakpoint
+		li			r0,Offset BKPTPtr shl 1
+		li			r0,Offset BKPTPtr shr 7
+		ldb			r1,mar6:r0
+		or			r1,r1:r1
+		jcl			r1:zf,Displacement MC_UART0
+; if preakpoint present
+		li			r2,1
+		size		r13,byte
+		add			r0,r0:r2
+		ldb			r1,mar6:r0
+		xor			r1,r1:r13
+		jcl			r1:nzf,Displacement MC_UART0
+; if prompt should be printed
+		neg			r2
+		add			r13,r13:r2
+		st			mar6:r0,r13							; new value of counter
+		li			r0,Offset CRString shl 1
+		li			r0,Offset CRString shr 7
+		sar			r1,ar13
+		li			r2,Offset OutString shl 1
+		li			r2,Offset OutString shr 7
+		call		r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement CmdUndefined
+;-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+; checking UART receiver
+MC_UART0:
+		li			r1,0
+		li			r0,8
+		li			r1,1
+		ldw			r2,mar0:r0
+		and			r3,r2:r1
+		jcl			r3:nzf,Displacement MC_UART1
+;-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+;	checking command stream if UART is empty
+MC_CS0:
+		li			r3,CommandStreamSelector
+		lar			ar9,r3
+		li			r1,1
+		li			r0,0
+		ldw			r0,mar4:r1							; reading data counter
+		or			r0,r0:r0
+		jcl			r0:zf,Displacement MC_DTCheck0
+; if data present
+		xor			r1,r1:r1
+		ldb			r2,mar4:r1							; reading data byte
+; checking command stream status
+		li			r12,(Offset CmdStates shl 1)+1
+		li			r12,Offset CmdStates shr 7
+		ldb			r0,mar6:r12
+		or			r0,r0:r0
+		jcl			r0:nzf,Displacement MC_CS1
+; if first byte entered. First byte is an Echo CPU number which sending command
+		li			r0,1
+		st			mar6:r12,r0							; set command status
+		add			r12,r12:r0
+		add			r12,r12:r0
+		st			mar6:r12,r2							; set the echo cpu number
+		jnear		Displacement MC_CS0
+;-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+;	scanning descriptor table
+; r7 r8 r9 r11 r12 r13 r14 r15 mar1 mar2 mar5
+; R7 - counter of free DT entries
+; R8 - counter of free segments
+; R9 - constant 32
+; R11 - cycle DT counter
+MC_DTCheck0:
+		li			r12,Offset CmdStates shl 1
+		li			r12,Offset CmdStates shr 7
+		ldw			r0,mar6:r12
+		or			r0,r0:r0
+		jc			r0:nzf,displacement MC_DTCheck01
+		sleep
+MC_DTCheck01:
+		ldb			r0,mar1:r9
+		li			r1,3
+		and			r2,r0:r1
+		lsri		r1:1
+		jc			r2:nzf,displacement MC_DTCheck1
+; if empty DT Entry
+		add			r7,r7:r1
+		loop		r11,displacement MainCycle
+		xor			r11,r11:r11
+		jcl			r11:zf,displacement MC_DTCheckEnd
+; if entry not empty
+MC_DTCheck1:
+		xor			r2,r1:r0
+		jc			r2:nzf,displacement MC_DTCheck2
+		add			r8,r8:r1
+MC_DTCheck2:
+		loop		r11,displacement MainCycle
+		xor			r11,r11:r11
+		jcl			r11:zf,displacement MC_DTCheckEnd
+
+;-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+;	processing command string receiving
+MC_CS1:
+		size		r2,byte
+		li			r3,EchoStreamSelector
+		size		r3,qword
+		li			r12,(Offset CmdStates shl 1)+3
+		li			r12,Offset CmdStates shr 7
+		li			r0,0
+		ldb			r0,mar6:r12				; reading Echo CPU Number
+		size		r0,qword
+		lsli		r0:12
+		lsli		r0:12
+		or			r3,r3:r0
+		lar			ar11,r3
+		li			r0,0
+		st			mar5:r0,r2				; store Echo into the echo stream
+		li			r3,0dh
+		xor			r3,r3:r2
+		jc			r3:nzf,Displacement MC_CS2
+; if 0Dh entered
+		li			r2,0Ah
+		st			mar5:r0,r2
+		jnear		Displacement MC_CmdEnter
+; if regular character
+MC_CS2:
+		st			mar3:r2,r2				; store byte into string
+; check the pointer
+		copy		r1,r10					; pointer to the start of the string
+		li			r3,100
+		neg			r1
+		sar			r4,ar6
+		add			r4,r4:r1
+		xor			r4,r4:r3
+		jcl			r4:nzf,Displacement MainCycle
+; if pointer must be resetted
+		li			r2,0dh
+		lar			ar6,r10
+		st			mar5:r0,r2
+		li			r2,0ah
+		st			mar5:r0,r2
+		li			r2,9Bh
+		st			mar5:r0,r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement MainCycle
+		
+;-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+;	processing symbol from UART
+MC_UART1:
+		size		r2,byte
+		li			r12,Offset CmdStates shl 1
+		li			r1,Offset UARTStateTable shl 1 
+		li			r12,Offset CmdStates shr 7
+		li			r1,Offset UARTStateTable shr 7
+		li			r0,0
+		ldb			r0,mar6:r12						; reading status byte
+		lsli		r0:1
+		add			r1,r1:r0
+		ldw			r0,mar6:r1						; reading branch offset
+		jump		r0
+; branch table for the UART status
+UARTStateTable:
+	word		Offset MC_UART_S0 shl 1			; zero state, waiting for a first byte solution				0
+	word		Offset MC_UART_S1 shl 1			; waiting a high nibble of the CPU number					1
+	word		Offset MC_UART_S2 shl 1			; waiting a low nibble of the CPU number					2
+	word		Offset MC_UART_S3 shl 1			; waiting for a bits 15:12 of the data length				3
+	word		Offset MC_UART_S4 shl 1			; waiting for a bits 11:8 of the data length				4
+	word		Offset MC_UART_S5 shl 1			; waiting for a bits 7:4 of the data length					5
+	word		Offset MC_UART_S6 shl 1			; waiting for a bits 3:0 of the data length					6
+	word		Offset MC_UART_S7 shl 1			; data transfer to the command stream of the another CPU	7
+	word		Offset MC_UART_S8 shl 1			; receiving local command until 0dh character				8
+;------------------
+; first UART byte state
+MC_UART_S0:
+		li			r0,40h						; check the processor prefix
+		xor			r0,r0:r2
+		jc			r0:nzf,Displacement MC_UART_S0_0
+; if prefix received
+		li			r1,1
+		st			mar6:r12,r1
+		xor			r1,r1:r1
+		jcl			r1:zf,Displacement MainCycle
+; if first byte not a prefix. It is a local command byte
+MC_UART_S0_0:
+		st			mar3:r2,r2					; store byte in the command string
+		li			r1,8
+		st			mar0:r1,r2					; output ECHO
+		st			mar6:r12,r1					; set the new state
+		li			r3,3
+		add			r12,r12:r3
+		xor			r1,r1:r1
+		st			mar6:r12,r1					; set zero CPU number for echo
+		jcl			r1:zf,Displacement MainCycle
+;------------------
+; first byte of CPU number received
+MC_UART_S1:
+		li			r1,0C6h
+		add			r1,r1:r2
+		li			r0,2
+		st			mar6:r12,r0					; set new state
+		jc			r1:ncf,Displacement MC_UART_S1_0
+		li			r0,4Fh
+		li			r1,0C9h
+		and			r2,r2:r0
+		add			r2,r2:r1
+MC_UART_S1_0:
+		li			r3,0fh
+		and			r2,r2:r3
+		lsli		r2:4
+		li			r12,(Offset CmdStates shl 1)+2
+		li			r12,Offset CmdStates shr 7
+		st			mar6:r12,r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement MainCycle
+;------------------
+; second byte of CPU number
+MC_UART_S2:
+		li			r1,0C6h
+		add			r1,r1:r2
+		li			r0,3
+		st			mar6:r12,r0					; set new state
+		jc			r1:ncf,Displacement MC_UART_S2_0
+		li			r0,4Fh
+		li			r1,0C9h
+		and			r2,r2:r0
+		add			r2,r2:r1
+MC_UART_S2_0:
+		li			r3,0fh
+		and			r2,r2:r3
+		li			r12,(Offset CmdStates shl 1)+2
+		li			r12,Offset CmdStates shr 7
+		ldb			r0,mar6:r12
+		or			r2,r2:r0
+		st			mar6:r12,r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement MainCycle
+;------------------
+; bits 15-12 data count
+MC_UART_S3:
+		li			r1,0C6h
+		add			r1,r1:r2
+		li			r0,4
+		st			mar6:r12,r0					; set new state
+		jc			r1:ncf,Displacement MC_UART_S3_0
+		li			r0,4Fh
+		li			r1,0C9h
+		and			r2,r2:r0
+		add			r2,r2:r1
+MC_UART_S3_0:
+		li			r3,0fh
+		and			r2,r2:r3
+		lsli		r2:4
+		li			r12,(Offset CmdStates shl 1)+5
+		li			r12,Offset CmdStates shr 7
+		st			mar6:r12,r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement MainCycle
+;------------------
+; bits 11-8 data count		
+MC_UART_S4:
+		li			r1,0C6h
+		add			r1,r1:r2
+		li			r0,5
+		st			mar6:r12,r0					; set new state
+		jc			r1:ncf,Displacement MC_UART_S4_0
+		li			r0,4Fh
+		li			r1,0C9h
+		and			r2,r2:r0
+		add			r2,r2:r1
+MC_UART_S4_0:
+		li			r3,0fh
+		and			r2,r2:r3
+		li			r12,(Offset CmdStates shl 1)+5
+		li			r12,Offset CmdStates shr 7
+		ldb			r0,mar6:r12
+		or			r2,r2:r0
+		st			mar6:r12,r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement MainCycle
+;------------------
+; bits 7-4 data count
+MC_UART_S5:
+		li			r1,0C6h
+		add			r1,r1:r2
+		li			r0,6
+		st			mar6:r12,r0					; set new state
+		jc			r1:ncf,Displacement MC_UART_S5_0
+		li			r0,4Fh
+		li			r1,0C9h
+		and			r2,r2:r0
+		add			r2,r2:r1
+MC_UART_S5_0:
+		li			r3,0fh
+		and			r2,r2:r3
+		lsli		r2:4
+		li			r12,(Offset CmdStates shl 1)+4
+		li			r12,Offset CmdStates shr 7
+		st			mar6:r12,r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement MainCycle
+;------------------
+; bits 11-8 data count		
+MC_UART_S6:
+		li			r1,0C6h
+		add			r1,r1:r2
+		li			r0,7
+		st			mar6:r12,r0					; set new state
+		jc			r1:ncf,Displacement MC_UART_S6_0
+		li			r0,4Fh
+		li			r1,0C9h
+		and			r2,r2:r0
+		add			r2,r2:r1
+MC_UART_S6_0:
+		li			r3,0fh
+		and			r2,r2:r3
+		li			r12,(Offset CmdStates shl 1)+4
+		li			r12,Offset CmdStates shr 7
+		ldb			r0,mar6:r12
+		or			r2,r2:r0
+		st			mar6:r12,r2
+; send echo cpu number to the stream
+		li			r0,CommandStreamSelector
+		li			r12,(Offset CmdStates shl 1)+2
+		size		r0,qword
+		li			r12,Offset CmdStates shr 7
+		li			r1,0
+		ldb			r1,mar6:r12
+		size		r1,qword
+		lsli		r1:12
+		lsli		r1:12
+		or			r0,r0:r1
+		lar			ar9,r0
+		li			r1,MPCR_Offset
+		ldb			r2,mar2:r1
+		li			r0,0
+		st			mar4:r0,r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement MainCycle
+;------------------
+; data transfer to the another CPU
+MC_UART_S7:
+		li			r0,CommandStreamSelector
+		li			r12,(Offset CmdStates shl 1)+2
+		size		r0,qword
+		li			r12,Offset CmdStates shr 7
+		li			r1,0
+		ldb			r1,mar6:r12
+		size		r1,qword
+		lsli		r1:12
+		lsli		r1:12
+		or			r0,r0:r1
+		lar			ar9,r0
+		xor			r1,r0:r0
+		st			mar4:r1,r2							; store data byte into stream
+; check the data count
+		li			r12,(Offset CmdStates shl 1)+4
+		li			r0,0
+		li			r12,Offset CmdStates shr 7
+		ldw			r0,mar6:r12
+		li			r1,-1
+		add			r0,r0:r1
+		st			mar6:r12,r0							; store new count value 
+		jcl			r0:nzf,Displacement MainCycle
+; if data count expired
+		li			r12,Offset CmdStates shl 1
+		size		r0,byte
+		li			r12,Offset CmdStates shr 7
+		st			mar6:r12,r0							; reset the UART state
+		jcl			r0:zf,Displacement MainCycle
+;------------------
+; local command line processing
+MC_UART_S8:		
+		li			r0,8
+		st			mar0:r0,r2							; output ECHO
+		li			r3,0dh
+		xor			r3,r3:r2
+		jc			r3:nzf,Displacement MC_UART_S8_0
+		li			r2,0Ah
+		st			mar0:r0,r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement MC_CmdEnter
+; checkin pointer
+MC_UART_S8_0:
+		st			mar3:r2,r2							; store byte
+		copy		r1,r10
+		li			r3,100
+		neg			r1
+		sar			r4,ar6
+		add			r4,r4:r1
+		xor			r4,r4:r3
+		jcl			r4:nzf,Displacement MainCycle
+; if pointer must be resetted
+		li			r2,0dh
+		lar			ar6,r10
+		st			mar0:r0,r2
+		li			r2,0ah
+		st			mar0:r0,r2
+		li			r2,9Bh
+		st			mar0:r0,r2
+		xor			r2,r2:r2
+		jcl			r2:zf,Displacement MainCycle
+;
+;-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-	-
+; enter string
+;
+MC_CmdEnter:
+		li			r2,0
+		st			mar3:r2,r2			; end of line
+		lar			ar6,r10				; reset pointer
+		li			r3,Offset CMDList shl 1
+		li			r3,Offset CMDList shr 7
+		li			r4,CMDNumber		; number of commands
+		size		r4,dword
+		lar			ar12,r3				; offset to the CMD list
+		li			r6,20h
+		ldw			r0,mar3:r2			; reading command
+		xor			r5,r5:r5
+		copy		r5,r4
+		ldb			r1,mar3:r2			; must be space symbol
+		xor			r1,r1:r6
+		jc			r1:nzf,Displacement CmdUndefined
+; command decoding cycle
+Cmd0:
+		ldw			r2,mar6:r2
+		xor			r2,r2:r0
+		jcl			r2:zf,Displacement CmdFound
+		loop		r4,Displacement Cmd0
+; If Undefined command entered
+CmdUndefined:
+		li			r2,9Bh
+		li			r0,Offset BKPTPtr shl 1
+		li			r0,Offset BKPTPtr shr 7
+		ldb			r1,mar6:r0
+		or			r1,r1:r1
+		jc			r1:zf,displacement CmdU1
+		li			r0,20h
+		or			r2,r2:r0
+CmdU1:
+		li			r0,(Offset CmdStates shl 1)+3
+		li			r0,Offset CmdStates shr 7
+		li			r1,0
+		ldb			r1,mar6:r0
+		size		r1,qword
+		lsli		r1:12
+		lsli		r1:12
+		li			r3,EchoStreamSelector
+		or			r3,r3:r1								; set a cpu number in the selector
+		lar			ar9,r3
+		li			r0,0
+		li			r12,Offset CmdStates shl 1
+		li			r0,0
+		li			r12,Offset CmdStates shr 7
+		st			mar4:r0,r2
+		st			mar6:r12,r0								; zero state for CMD stream and UART input
+		lar			ar6,r10
+		xor			r0,r0:r0
+		jcl			r0:zf,Displacement MainCycle
+; if valid command received
+CmdFound:
+		li			r0,Offset CMDTable shl 1
+		neg			r4
+		li			r0,Offset CMDTable shr 7
+		add			r5,r5:r4
+		lsli		r5:1
+		add			r0,r0:r5
+		li			r3,0
+		ldw			r3,mar3:r0								; reading routine offset
+		call		r3
+		jnear		Displacement CmdUndefined
+;
+;--------------------------------------------------------------------------------------------------
+; End of DT check cycle
+;
+MC_DTCheckEnd:
+		li			r0,Offset DTParams shl 1
+		li			r0,Offset DTParams shr 7
+		lar			ar12,r0
+		st			mar6:r14,r7						; free entries
+		st			mar6:r14,r8						; free segments
+		li			r1,-DTCleaningLimit
+		li			r1,(-DTCleaningLimit) shr 8
+		add			r0,r8:r1
+		jcl			r0:cf,displacement DTClearTable
+MC_DTCheckRestart:
+		li			r12,DTR_Offset+4
+		li			r11,0
+		li			r7,7
+		lar			ar2,r7
+		xor			r7,r7:r7
+		ldd			r11,mar2:r12
+		lsri		r11:8
+		xor			r8,r8:r8
+		size		r7,dword
+		size		r8,dword
+		li			r13,Offset MainCycle shl 1
+		li			r13,Offset MainCycle shr 7
+		jump		r13
+; if need to clear table
+; 1. disable task switch
+; 
+;		amode		r9,1
+;		amode		r11,0
+;		amode		r12,2
+;		amode		r13,3
+;		amode		r14,4
+;
+DTClearTable:
+		li			r12,CSR_Offset+2
+		li			r0,10h
+		st			mar2:r12,r0
+; scanning descriptor table
+		li			r12,DTR_Offset+4
+		li			r11,0
+		lar			ar2,r11
+		li			r6,0ffh
+		ldd			r11,mar2:r12
+		li			r6,0ffh
+		lsri		r11:8
+		li			r6,0ffh
+		li			r1,1
+		li			r6,0ffh
+		li			r3,3
+		li			r6,0ffh
+		li			r7,7
+		li			r6,0
+		size		r7,dword
+		copy		r6,r6
+		li			r13,20						; offset to the upper limit
+		copy		r13,r13
+DTClearCycle:
+		ldb			r0,mar1:r7
+		and			r0,r0:r3
+		xor			r0,r0:r1
+		jc			r0:zf,displacement DTCC1
+DTCC0:
+		add			r7,r7:r9
+		loop		r11,displacement DTClearCycle
+; if cycle ends
+		jnear		displacement DTCEndCycle
+; if free segment found then search his neighbourhood
+DTCC1:
+		copy		r8,r11
+		li			r0,0E0h
+		and			r7,r7:r0					; pointer to the current DT entry
+		lar			ar2,r7						; pointer to the current DT entry
+		ldq			r4,mar1:r11					; reading base address
+		and			r4,r4:r6
+		li			r5,0
+		ldd			r5,mar1:r13					; reading upper limit
+		add			r5,r5:r4					; upper base address
+		li			r0,7
+		or			r7,r7:r0
+		jnear		displacement DTCC3
+; search next free segment
+DTCC2:
+		ldb			r0,mar1:r7
+		and			r0,r0:r3
+		xor			r0,r0:r1
+		jcl			r0:zf,displacement DTCC4
+DTCC3:
+		add			r7,r7:r9
+		loop		r8,displacement DTCC2
+; set updated descriptor into the table
+		st			mar1:r11,r4
+		neg			r4
+		add			r5,r4:r5
+		size		r5,dword
+		st			mar1:r13,r5
+		sar			r7,ar2
+		li			r0,7
+		or			r7,r7:r0
+		li			r0,1
+		st			mar1:r7,r0
+		jnear		displacement DTCC0
+; if entry found - get her start and end addresses
+DTCC4:
+		li			r0,0E0h
+		and			r7,r7:r0
+		ldq			r14,mar1:r7					; reading base address
+		and			r14,r14:r6
+		li			r15,0
+		add			r12,r7:r13
+		ldd			r15,mar1:r12				; reading upper limit
+		add			r15,r15:r14
+; check lower segment position
+		xor			r0,r4:r15
+		jcl			r0:nzf,displacement DTCC5
+; if segment placed below
+		copy		r4,r14						; new base address
+		li			r2,0C0h
+		li			r12,MPCR_Offset+3
+		st			mar2:r12,r2
+		li			r2,7
+		or			r7,r7:r2
+		li			r0,0
+		st			mar1:r7,r0					; set to zero type byte
+		jnear		displacement DTCC3
+; check upper segment position
+DTCC5:
+		xor			r0,r5:r14
+		jc			r0:zf,displacement DTCC6
+		li			r0,7
+		or			r7,r7:r0
+		jnear		displacement DTCC3
+; if upper position confirmed
+DTCC6:
+		copy		r5,r15						; set new upper limit
+		li			r2,0C0h
+		li			r12,MPCR_Offset+3
+		st			mar2:r12,r2
+		li			r2,7
+		or			r7,r7:r2
+		li			r0,0
+		st			mar1:r7,r0					; set to zero type byte
+		jnear		displacement DTCC3
+; enable context controller
+DTCEndCycle:
+		li			r12,MPCR_Offset+3
+		li			r0,080h
+		st			mar2:r12,r0
+		li			r2,7
+; checking controller readyness
+DTCC7:
+		ldb			r0,mar2:r12
+		and			r0,r0:r2
+		xor			r0,r0:r2
+		jc			r0:nzf,displacement DTCC7
+; enable task switch
+		li			r12,CSR_Offset+2
+		li			r0,0F0h
+		st			mar2:r12,r0
+		li			r0,Offset MC_DTCheckRestart shl 1
+		li			r0,Offset MC_DTCheckRestart shr 7
+		jump		r0
+
+	align 8
+DTParams:
+	dword	0, 0
+
+; 0 UART state
+; 1 CMD stream state
+; 2 CPU Number for command 
+; 3 CPU Number for echo
+; 4-5 count of bytes
+CmdStates:
+	dword	0, 0
+
+;==================================================================================================
+;					Processing commands
+;==================================================================================================
+;
+;		Read Raw command
+include Read.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Write Raw and Write Object command
+;
+include Write.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Create Object command
+; 
+include CreateObject.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Delete Object command
+;
+include DeleteObject.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Create process command
+; input parameter - object selector
+;
+include CreateProcess.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Run Process command
+;
+include RunProcess.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Stop Process command
+;
+include StopProcess.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Kill Process command
+;
+include KillProcess.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Read File command
+;
+include ReadFile.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Write File command
+;
+include WriteFile.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Delete File command
+;
+include DeleteFile.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Get Object length command
+;
+include GetLength.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Get Catalog command
+;
+include GetCatalog.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Erase Flash command
+;
+include EraseFlash.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		CPU List command
+;
+include CPUList.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Get Performance command
+;
+include Performance.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Get Status command
+;
+include GetStatus.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Read Breakpoint
+;
+include ReadBreakpoint.src
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Process List
+;
+include ProcList.src
+
+;==================================================================================================
+;					Subroutines	
+;==================================================================================================
+include Subprog.src
+
+;==================================================================================================
+;					System Error processing
+;==================================================================================================
+		align 8
+SystemError:
+		amode		r3,2
+		amode		r2,2
+		amode		r10,4
+		amode		r1,0
+		li			r2,CPSR_Offset
+		li			r0,ESR_Offset
+		li			r1,SysSelector
+		lar			ar0,r0
+		lar			ar1,r1
+		ldd			r8,mar0:r2					; reading system PSO selector
+		li			r2,ErrorSelector
+		lar			ar3,r2
+		li			r3,Offset ErrorPtr shl 1
+		li			r3,Offset ErrorPtr shr 7
+		li			r2,0
+		ldb			r2,mar6:r3					; reading table pointer
+		size		r2,dword
+		li			r4,0F8h						; offset mask
+		li			r4,01h
+		lsli		r2:3
+		li			r1,8
+		li			r6,0						; error flag form system process
+		
+		lar			ar5,r8						; mar2 - pointer to the return selector in PSO
+		li			r7,ContextStackOffset_PSO_position
+		amode		r7,2
+		ldd			r0,mar2:r7							; reading context stack base offset
+		li			r7,ContextStackPointer_PSO_position
+		lar			ar4,r0
+		li			r9,-4
+		ldd			r7,mar2:r7							; reading context stack pointer
+		add			r7,r7:r9
+		amode		r7,3
+		li			r9,0
+		ldd			r9,mar2:r7							; reading return PSO selector from current context stack
+		li			r12,44h
+		amode		r12,2		
+		li			r0,ProcTableSelector
+		lar			ar7,r0							; mar3 pointer to the task table
+		
+; read error register cycle
+SE1:
+		ldq			r0,mar0:r1						; reading error code
+		copy		r5,r0
+		csli		r5:8
+		size		r5,byte
+		or			r5,r5:r5
+		jc			r5:nzf,Displacement SE2
+		jnear		Displacement SE7				; if all codes fetched
+SE2:
+		st			mar1:r2,r0						; store code into table
+		add			r2,r2:r1
+		and			r2,r2:r4						; promote pointer
+		lsli		r0:8
+		li			r5,40
+		lsr			r0:r5							; extract process selector
+		size		r0,dword
+		xor			r5,r0:r8
+		jc			r5:nzf,Displacement SE3
+		or			r6,r6:r1						; flag for system process
+		jnear		Displacement SE1
+; if non-system process cause error then remove him from process table
+SE3:
+		xor			r5,r0:r9						; checkin return PSO selector
+		jc			r5:nzf,Displacement SE4
+		st			mar2:r7,r8						; setting system PSO selector as a return selector
+;
+; remove process from process table
+;
+SE4:
+		li			r10,16
+		li			r5,0
+		lar			ar6,r5
+		li			r15,Offset AlignProcTable shl 1
+		li			r15,Offset AlignProcTable shr 7
+		copy		r15,r15
+		st			mar0:r12,r0
+SE5:
+		sar			r3,ar6
+		ldd			r5,mar3:r10						; reading next position
+		xor			r5,r5:r0
+		jc			r5:nzf,Displacement SE6
+; if process must be deleted
+		st			mar3:r3,r5
+		call		r15
+SE6:
+		loop		r10,Displacement SE5
+		jnear		Displacement SE1
+; end of error reading, checkin system error flag
+SE7:
+		lsri		r2:3
+		size		r2,byte
+		li			r3,Offset ErrorPtr shl 1
+		li			r3,Offset ErrorPtr shr 7
+		st			mar6:r3,r2
+		or			r6,r6:r6
+		jc			r6:nzf,Displacement SE8
+		endmsg
+; if system process cause error then reset context stack pointer and reset the CSR
+SE8:
+		li			r1,PSOSelector
+		lar			ar7,r1
+		li			r0,ContextStackOffset_PSO_position
+		lar			ar6,r0
+		li			r0,400
+		li			r0,400 shr 8
+		li			r0,0
+		st			mar3:r10,r0
+		li			r0,1824
+		li			r0,1824 shr 8
+		li			r0,0
+		st			mar3:r10,r0
+		li			r0,0
+		size		r0,dword
+		st			mar3:r10,r0
+; reset stack pointer
+		li			r0,StackSelector
+		lar			ar15,r0
+		li			r1,400h
+		li			r1,400h shr 8
+		lar			ar14,r1
+; reset the CSR
+		li			r3,CSR_Offset
+		li			r4,0
+		li			r4,0
+		li			r4,0F0h
+		li			r4,0
+		st			mar0:r3,r4
+		
+		li			r1,0
+		li			r2,8
+		li			r1,1
+		li			r0,IOSelector
+		lar			ar1,r0
+		li			r0,CommandStreamSelector
+		lar			ar9,r0
+; flush the UART rx queue
+UARTFlush:
+		ldw			r0,mar0:r2
+		and			r3,r0:r1
+		jc			r3:nzf,Displacement UARTFlush
+; flush the command stream
+StreamFlush:
+		ldb			r0,mar4:r2
+		jc			r0:nnf,Displacement StreamFlush		
+		li			r0,Offset MainRestart shl 1
+		li			r0,Offset MainRestart shr 7
+		jump		r0
+	
+	align 2
+ErrorPtr:
+	byte	0
+
+;==================================================================================================
+;					Breakpoint processing
+;==================================================================================================
+		align 8
+Breakpoint:
+		getpar		r1					; reading selector PSO
+		lar			ar1,r1
+		copy		r6,r1
+		size		r6,dword
+		li			r2,ContextStackOffset_PSO_position
+		amode		r2,2
+		ldd			r4,mar0:r2
+		li			r2,ContextStackPointer_PSO_position
+		li			r3,0
+		ldd			r3,mar0:r2
+		add			r3,r3:r4
+		li			r2,8
+		add			r2,r2:r3			; offset to CSR
+		ldd			r1,mar0:r2
+		lsli		r1:5
+		jcl			r1:dbf,displacement Bkpt1
+; processing BKPT for X16 mode
+		li			r0,5ch				; cycle instruction
+		li			r5,-2
+		li			r0,0
+		li			r2,16				; offset to IP image
+		add			r2,r3:r2
+		ldq			r1,mar0:r2			; reading IP Value from PSO
+		add			r1,r1:r5
+		copy		r7,r1
+		st			mar0:r2,r1
+		li			r2,576
+		size		r7,dword
+		li			r2,576 shr 8
+		add			r2,r3:r2
+		ldd			r4,mar0:r2			; reading code selector
+		lar			ar3,r4
+		amode		r1,2
+		st			mar1:r1,r0			; set the jump instruction
+		jnear		displacement Bkpt2
+; processing BKPT for X32 mode
+Bkpt1:
+		li			r0,0CAh
+		li			r2,16				; offset to IP image
+		li			r0,0
+		li			r5,-4
+		add			r2,r3:r2
+		size		r0,dword
+		ldq			r1,mar0:r2			; reading IP Value from PSO
+		add			r1,r1:r5
+		copy		r7,r1
+		st			mar0:r2,r1
+		li			r2,960
+		size		r7,dword
+		li			r2,960 shr 8
+		add			r2,r3:r2
+		ldd			r4,mar0:r2			; reading code selector
+		lar			ar3,r4
+		amode		r1,2
+		st			mar1:r1,r0			; set the jump instruction
+; common end
+Bkpt2:
+		li			r9,BKPTSelector
+		lar			ar5,r9
+		li			r1,Offset BKPTPtr shl 1
+		li			r1,Offset BKPTPtr shr 7
+		li			r0,0
+		ldb			r0,mar6:r1
+		lar			ar4,r0
+		amode		r0,4
+		st			mar2:r0,r6
+		st			mar2:r0,r7
+		sar			r0,ar4
+		size		r0,byte
+		st			mar6:r1,r0
+		li			r2,1
+		copy		r4,r2
+		neg			r4
+		add			r1,r1:r2
+		li			r3,IOSelector
+		lar			ar1,r3
+		li			r2,14h
+		ldb			r0,mar0:r2
+		add			r0,r0:r4
+		st			mar6:r1,r0
+		endmsg
+
+	align 2
+BKPTPtr:
+	byte	0,0
+
+;==================================================================================================
+;					Dynamic link procedure processing
+;==================================================================================================
+		align 8
+include DLP.src
+
+;==================================================================================================
+;					Search procedure entry by network request
+;==================================================================================================
+		align 8
+include GetEntry.src
+
+;==================================================================================================
+;					Service
+;==================================================================================================
+		align 8
+include Service.src
+
+;==================================================================================================
+;					UART Interrupt
+;==================================================================================================
+		align 8
+UARTInterrupt:
+		endmsg
+
+;==================================================================================================
+;					Timer Interrupt
+;==================================================================================================		
+		align 8
+TimerInterrupt:
+		amode		r0,0
+		li			r0,0
+		lar			ar0,r0
+		li			r1,IOSelector
+		lar			ar1,r1
+		li			r0,1
+		ldb			r1,mar0:r0
+		xor			r1,r1:r0
+		st			mar0:r0,r1
+		
+		li			r0,2
+		li			r1,62h
+		lar			ar0,r1
+		st 			mar0:r0,r0
+
+		amode		r0,2
+		li			r0,Offset TimerData shl 1
+		li			r1,1
+		li			r0,Offset TimerData shr 7
+		ldq			r2,mar6:r0
+		add			r3,r2:r1
+		daa			r3
+		st			mar6:r0,r3
+		endmsg
+	align 8
+TimerData:
+	Qword	0
+
+;==================================================================================================
+;					Variables block
+;==================================================================================================
+		align 2
+PlatformString:
+	byte	'Platform: ',0
+		align 2	
+ArriaIIString:
+	byte	'EP2AGX125EF29I3',0
+		align 2	
+ArriaVString:
+	byte	'5AGTFC7H3F35I3',0
+		align 2
+Kintex7String:
+	byte	'Kintex 7',0
+		align 2
+StratixIVString:
+	byte	'Stratix IV',0
+		align 2
+StratixVString:
+	byte	'5SGXEA7N2F45C2',0
+		align 2
+CycloneVString:
+	byte	'Cyclone V E',0
+		align 2
+Arria10String:
+	byte	'10AX115S3F45E2SGE3',0
+
+
+	
+		align 2
+CoreString:
+	byte	'Processor core: ',0
+		align 2
+V0String:
+	byte	'1x16V0',0
+		align 2
+V2String:
+	byte	'1x16V2',0
+		align 2
+DuoV0String:
+	byte	'2x16V0',0
+		align 2
+DuoV2String:
+	byte	'2x16V2',0
+		align 2
+QuadV0String:
+	byte	'4x16V0',0
+		align 2
+QuadV2String:
+	byte	'4x16V2',0
+		align 2
+DFFTString:
+	byte	'1x16V02FFTE',0
+		align 2
+X32String:
+	byte	'1x32V0',0
+		align 2
+DTx16String:
+	byte	'1x16V0/x16V0',0
+		align 2
+QTx16x32String:
+	byte	'1x16V0/x16V0/x32V0/x32V0',0
+		align 2
+X16LString:
+	byte	'x16L',0
+
+
+
+		align 2
+BuiltString:
+	byte	'Kernel built: ',Build,0dh,0ah
+		align 2
+ClockString:
+	byte	'Main clock: ',0
+		align 2
+String2:
+	byte	' bytes of free memory.',0dh,0ah,9Bh,0
+		align 2
+PromptString:
+	byte 	0dh,0ah,9bh,0
+		align 2
+CRString:
+	byte	0dh,0ah,0
+		align 2
+MHZString:
+	byte 	'MHz',0dh,0ah,0
+		align 2
+StatString1:
+	byte	'Total free memory: ',0
+		align 2
+StatString2:
+	byte	0dh,0ah,'Cached free memory: ',0
+		align 2
+StatString3:
+	byte	0dh,0ah,'Empty descriptors: ',0
+		align 2
+StatString4:
+	byte	0dh,0ah,'Free memory descriptors: ',0
+		align 2
+StatString5:
+	byte	0dh,0ah,'Object descriptors: ',0
+		align 2
+StatString6:
+	byte	0dh,0ah,'Stream descriptors: ',0
+		align 2
+StatString7:
+	byte	0dh,0ah,'Active processes:',0dh,0ah,0
+		align 2
+StatString8:
+	byte	'Process activity base value: ',0
+		align 2
+StatString9:
+	byte	0dh,0ah,'Remained free memory: ',0
+		align 2
+StatString10:
+	byte	0dh,0ah,'Remained objects: ',0
+		align 2
+String1:
+	byte 	array 128
+InputString:
+	byte	array 128
+
+; Command list
+CMDList:
+	byte 	'RR', 'WR', 'CO', 'DO', 'RO', 'WO', 'CP', 'RP', 'SP', 'GL', 'KP', 'RF', 'WF', 'GC', 'DF', 'EA'
+	byte	'GS', 'WB', 'CL', 'GP', 'RB', 'PL'
+
+		align 2
+CMDTable:
+	word 	Offset ReadRaw shl 1
+	word 	Offset WriteRaw shl 1
+	word 	Offset CreateObject shl 1
+	word 	Offset DeleteObject shl 1
+	word 	Offset ReadObject shl 1
+	word 	Offset WriteObject shl 1
+	word 	Offset CreateProcess shl 1
+	word 	Offset RunProcess shl 1
+	word 	Offset StopProcess shl 1
+	word 	Offset GetLength shl 1
+	word 	Offset KillProcess shl 1
+	word 	Offset ReadFile shl 1
+	word 	Offset WriteFile shl 1
+	word 	Offset GetCatalog shl 1
+	word 	Offset DeleteFile shl 1
+	word 	Offset EraseFlash shl 1
+	word 	Offset GetStatus shl 1
+	word 	Offset WriteBlocked shl 1
+	word 	Offset CPUList shl 1
+	word 	Offset GetPerformance shl 1
+	word 	Offset ReadBreakpoint shl 1
+	word 	Offset ProcessList shl 1
+	
+PlatformTable:
+	word	Offset ArriaIIString shl 1		;0
+	word	Offset ArriaVString shl 1		;1
+	word	Offset Kintex7String shl 1		;2
+	word 	Offset StratixIVString shl 1	;3
+	word	Offset StratixVString shl 1		;4
+	word	Offset CycloneVString shl 1		;5
+	word	Offset Arria10String shl 1		;6
+	word	Offset CRString shl 1			;7
+	
+CoreTable:
+	word	Offset V0String shl 1			; 0
+	word	Offset V2String shl 1			; 1
+	word	Offset DuoV0String shl 1		; 2
+	word	Offset DuoV2String shl 1		; 3
+	word	Offset QuadV0String shl 1		; 4
+	word	Offset QuadV2String shl 1		; 5
+	word	Offset DFFTString shl 1			; 6
+	word	Offset X32String shl 1			; 7
+	word	Offset DTx16String shl 1		; 8
+	word	Offset QTx16x32String shl 1		; 9
+	word	Offset X16LString shl 1			; 10
+	word	Offset CRString shl 1			; 11
+	word	Offset CRString shl 1			; 12
+	word	Offset CRString shl 1			; 13
+	word	Offset CRString shl 1			; 14
+	word	Offset CRString shl 1			; 15
+	
+		align 32
+ControlBlock:
+;==================================================================================================
+;							Descriptor table
+;==================================================================================================
+; 0				null descriptor
+		qword	array 4
+; 1				Code descriptor
+		dword 	0
+		byte 	0, 0,0, 00110010b
+		dword	0, 0										; link selectors
+		dword	0, (Offset EndOfDataBlock) shr 4			; limits
+		qword	0
+; 2				IO block
+		dword 	0FFFFF800h
+		byte	0FFh, 0,0, 00110010b
+		dword	0,0										; link selectors
+		dword	0,400h									; limits
+		qword 	0
+; 3				system registers
+		dword 	0FFFFFFFCh
+		byte	0FFh, 0,0, 00110010b
+		dword	0,0										; link selectors
+		dword	0,4										; limits
+		qword 	0
+; 4				whole RAM descriptor
+		dword 	40000000h shr 5
+		byte 	0,0,0,00110010b
+		dword 	0,0
+		dword	0,0
+		qword	0
+; 5				stack descriptor
+		dword	(BootMemoryLength-4096) shr 5
+		byte 	0,0,0,00110010b
+		dword 	0,0
+		dword	0,StackOffset shr 5
+		qword	0
+; 6				first free memory descriptor
+		dword	(Offset EndOfDataBlock) shr 4
+		byte	0,0,0,1
+		dword	0,0
+		dword	0,((ControlBlockPosition shr 1)-(Offset EndOfDataBlock)) shr 4
+		qword	0
+; 7				second free memory descriptor
+		dword 	40000000h shr 5
+		byte 	0,0,0,1
+		dword 	0,0
+		dword	0,0
+		qword	0
+; 8				system process PSO
+		dword	((ControlBlockPosition shr 1)+ (Offset SystemPSO) - (Offset ControlBlock)) shr 4
+		byte	0,0,0,00110010b
+		dword	0,0
+		dword	0,((Offset EndOfPSO) - (Offset SystemPSO)) shr 4
+		qword	0
+; 9				Interrupt table descriptor
+		dword	((ControlBlockPosition shr 1)+ (Offset InterruptTable) - (Offset ControlBlock)) shr 4
+		byte	0,0,0,00110010b
+		dword	0,0
+		dword	0,4
+		qword	0
+; 10			Process table descriptor
+		dword	((ControlBlockPosition shr 1)+ (Offset TaskTable) - (Offset ControlBlock)) shr 4
+		byte	0,0,0,00110010b
+		dword	0,0
+		dword	0,2
+		qword	0
+; 11			DT Table descriptor
+		dword	ControlBlockPosition shr 5
+		byte	0,0,0,01110010b
+		dword	0,0
+		dword	0,((Offset EndOfDTable)-(Offset ControlBlock)) shr 4
+		qword	0
+; 12			Service descriptor
+		dword	ControlBlockPosition shr 5
+		byte	0,0,0,00110010b
+		dword	0,0
+		dword	0,0FFFFFFFFh
+		qword	0
+; 13			Search exported procedure descriptor
+		dword	(Offset SEPObject) shr 4
+		byte	0,0,0,01110010b
+		dword	0,0
+		dword	0,5
+		qword	0
+; 14			Debug log object
+		dword	((ControlBlockPosition shr 1)+ (Offset BKPTTable) - (Offset ControlBlock)) shr 4
+		byte	0,0,0,00110010b
+		dword	0,0
+		dword	0,8
+		qword	0
+; 15			Error log object
+		dword	((ControlBlockPosition shr 1)+ (Offset ErrorTable) - (Offset ControlBlock)) shr 4
+		byte	0,0,0,00110010b
+		dword	0,0
+		dword	0,16
+		qword	0
+; 16			Flash control register
+		dword	1000000h shr 5
+		byte	0,0,0,01110010b
+		dword	0,0
+		dword	0,1
+		qword	0
+; 17			Flash array
+		dword	20000000h shr 5
+		byte	0,0,0,01110010b
+		dword	0,0
+		dword	0,20000000h shr 5
+		qword	0
+; 18			Flash write buffer
+		dword	(BootMemoryLength-1024) shr 5
+		byte	0,0,0,01110010b
+		dword	0,0
+		dword	0,1024 shr 5
+		qword	0
+; 19 - command stream selector
+		dword	((ControlBlockPosition shr 1)+ (Offset CommandStream) - (Offset ControlBlock)) shr 4
+		byte	0,0,0,73h
+		dword	3FFh,0FFh				; pointer mask and WDT
+		qword	0
+		qword	0
+; 20 - echo stream selector
+		dword	((ControlBlockPosition shr 1)+ (Offset EchoStream) - (Offset ControlBlock)) shr 4
+		byte	0,0,0,73h
+		dword	3FFh,0FFh				; pointer mask and WDT
+		qword	0
+		qword	0
+; 21 -  null
+		dword	0
+		byte	0,0,0,0
+		dword	0,0
+		dword	0,0
+		qword	0
+; 22 - null
+		dword	0
+		byte	0,0,0,0
+		dword	0,0
+		dword	0,0
+		qword	0
+; 23 - null
+		dword	0
+		byte	0,0,0,0
+		dword	0,0
+		dword	0,0
+		qword	0
+; 24 - null
+		dword	0
+		byte	0,0,0,0
+		dword	0,0
+		dword	0,0
+		qword	0
+; 25 - null
+		dword	0
+		byte	0,0,0,0
+		dword	0,0
+		dword	0,0
+		qword	0
+; 26 - null
+		dword	0
+		byte	0,0,0,0
+		dword	0,0
+		dword	0,0
+		qword	0
+
+; 27 - 31
+		qword	array 20
+; 32 - 63
+		qword	array 128
+; 64 - 95
+		qword	array 128
+; 96 - 127
+		qword	array 128
+EndOfDTable:
+;==================================================================================================
+;							Interrupt table
+;==================================================================================================
+InterruptTable:
+		dword	0,0				; empty entry point
+		dword	8,0				; entry point for system error interrupt
+		dword	8,1				; entry point for breakpoint interrupt
+		dword	8,2				; UART interrupt
+		dword	8,3				; System timer interrupt
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+		dword	0,0				; reserved
+
+;==================================================================================================
+;							System PSO
+;==================================================================================================
+SystemPSO:
+		dword	2000				; process activity timer
+		dword	2^27				; the memory size allowed for the process, in 32-byte paragraphs
+		dword	2048				; allowable number of objects
+		dword	64					; Offset of the table of exported procedures
+		dword	8					; length of table
+		dword	128					; Offset of the table of imported procedures
+		dword	2					; length of table
+		dword	144					; Offset of the system messages queue
+		dword	8					; length of system queue  - 8 messages (128 bytes)
+		dword	0					; pointers for system messages queue
+		dword	272					; regular messages queue offset
+		dword	8					; regular messages queue length (8 messages/128 bytes)
+		dword	0					; regular messages queue pointers
+		dword	400					; contexts stack offset 
+		dword	1824				; length of contexts stack
+		dword	0					; current contexts stack pointer
+; table of exported procedures
+		dword	(Offset SystemError) shl 1, CodeSelector
+		dword	(Offset Breakpoint) shl 1, CodeSelector
+		dword	(Offset UARTInterrupt) shl 1, CodeSelector
+		dword 	(Offset TimerInterrupt) shl 1, CodeSelector
+		dword	Offset DynamicLinkProcedure shl 1, 37000000h or (CodeSelector)
+		dword	(Offset GetEntry) shl 1,38000000h or (CodeSelector)
+		dword	0,0
+		dword	(Offset Service) shl 1, 37000000h or (CodeSelector)
+; table of imported procedures
+PSOImport:
+		dword	0,5
+		dword	0,0
+; system messages queue
+		dword	array 32
+; regular messages queue
+		dword	array 32
+; contexts stack
+		dword	592					; context length
+		dword	12345678h			; message parameter (some kind of crap)
+		dword	0,0					; CSR
+		dword	0,0					; IP
+		dword	400h,0,StackSelector,0			; SP0
+		dword	0,0,0,0				; SP1
+		dword	0,0,0,0				; SP2
+		dword	0,0,0,0				; SP3
+		byte	array 488			; registers
+		dword	1					; code selector
+		byte	array 20
+; free stack space
+		align 32
+EndOfDataBlock:
+		byte	array 1224
+		
+		align 32
+EndOfPSO:
+;==================================================================================================
+;							Command stream buffer
+;==================================================================================================
+CommandStream:
+		byte array 1024
+		
+;==================================================================================================
+;							Echo strem buffer
+;==================================================================================================
+EchoStream:
+		byte array 1024
+;==================================================================================================
+;							Task table
+;==================================================================================================
+TaskTable:
+		dword	8
+		dword	array 15
+;==================================================================================================
+;							Breakpoint LOG
+;==================================================================================================
+BKPTTable:
+		qword array 32
+;==================================================================================================
+;							Error LOG
+;==================================================================================================
+ErrorTable:
+		qword array 64
+	
+EndOfControlBlock: byte 0
+
+EndOf Kernel16

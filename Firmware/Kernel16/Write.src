@@ -1,0 +1,331 @@
+;
+;	Write raw command
+;
+WriteRaw:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r15
+pusha	ar1
+pusha	ar2
+pusha	ar3
+;		checkin UART or stream
+		amode		r2,2
+		li			r2,(Offset CmdStates shl 1)+3
+		li			r2,Offset CmdStates shr 7
+		li			r0,0
+		ldb			r0,mar6:r2						; reading echo CPU number
+		size		r0,qword
+		lsli		r0:12
+		jc			r0:zf,Displacement WR00
+		li			r1,EchoStreamSelector
+		lsli		r0:12
+		or			r1,r1:r0
+		lar			ar1,r1
+; 		checkin transfer mode
+WR00:
+		amode		r2,4
+		amode		r0,0
+		ldb			r15,mar3:r0
+		li			r0,52h
+		xor			r15,r15:r0
+		jc			r15:nzf,Displacement WR_start
+; if symbol 'R' present, exclude him from string
+		ldb			r0,mar3:r2
+WR_start:		
+		copy		r0,r0
+		li			r0,Offset ReadHexParam shl 1
+		li			r0,Offset ReadHexParam shr 7
+		call		r0								; R0 returns HEX value. 
+		copy		r1,r0
+		amode		r2,4
+		li			r0,0							; initial count value
+		ldb			r2,mar3:r2
+		li			r0,1
+		or			r2,r2:r2
+		jc			r2:zf,Displacement WR0
+; if second parameter present
+		li			r3,Offset ReadDecParam shl 1
+		li			r3,Offset ReadDecParam shr 7
+		call		r3
+; R0 - count, R1 - start address
+; setting the start address into special descriptor
+WR0:
+		li			r2,DTSelector
+		copy		r3,r1
+		li			r4,ServiceSelector shl 5
+		lar			ar3,r2
+		li			r4,ServiceSelector shr 3
+		lar			ar2,r4
+		amode		r4,4
+		lsri		r3:5
+		size		r3,dword
+		st			mar1:r4,r3			; 32 bits of base
+		size		r3,qword
+		copy		r5,r5
+		li			r5,31
+		lsr			r3:r5
+		and			r5,r1:r5
+		lsri		r3:1
+		size		r3,byte
+		st			mar1:r4,r3			; high byte of base address
+		lsri		r4:5
+		copy		r6,r0					; R4-selector, R5-offset, R6-length
+		lar			ar2,r5
+		lar			ar3,r4
+		amode		r0,2
+		li			r0,8
+		li			r1,57h
+		st			mar0:r0,r1
+		li			r1,52h
+		st			mar0:r0,r1
+		li			r1,Offset WO10 shl 1
+		li			r1,Offset WO10 shr 7
+		jump		r1
+;
+;--------------------------------------------------------------------------------------------------
+;		Write Object command
+;
+WriteObject:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r15
+pusha	ar1
+pusha	ar2
+pusha	ar3
+;		checkin UART or stream
+		amode		r2,2
+		li			r2,(Offset CmdStates shl 1)+3
+		li			r2,Offset CmdStates shr 7
+		li			r0,0
+		ldb			r0,mar6:r2						; reading echo CPU number
+		size		r0,qword
+		lsli		r0:12
+		jc			r0:zf,Displacement WO00
+		lsli		r0:12
+		li			r1,EchoStreamSelector
+		or			r1,r1:r0
+		lar			ar1,r1
+; 		checkin transfer mode
+WO00:
+		amode		r2,4
+		amode		r0,0
+		ldb			r15,mar3:r0
+		li			r0,52h
+		xor			r15,r15:r0
+		jc			r15:nzf,Displacement WO_start
+; if symbol 'R' present, exclude him from string
+		ldb			r0,mar3:r2
+WO_start:		
+		li			r1,Offset ReadHexParam shl 1
+		li			r1,Offset ReadHexParam shr 7
+		call		r1
+		or			r0,r0:r0
+		jc			r0:zf,Displacement WO1
+		jnear		Displacement WO2
+; if no params entered
+WO1:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r15
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if selector entered
+WO2:
+		copy		r4,r0					; selector to R4
+		amode		r1,4
+		ldb			r0,mar3:r1
+		or			r0,r0:r0
+		jc			r0:nzf,Displacement WO3
+		jnear		Displacement WO1
+; if space character and offset present
+WO3:
+		call		r1		
+		copy		r5,r0					; R4-selector, R5-offset
+		ldb			r0,mar3:r1
+		or			r0,r0:r0
+		jc			r0:nzf,Displacement WO4
+		jnear		Displacement WO1
+; if length parameter present then check the object limits
+WO4:
+		li			r1,Offset ReadDecParam shl 1
+		li			r1,Offset ReadDecParam shr 7
+		call		r1
+		copy		r6,r0					; R4-selector, R5-offset, R6-length
+		lar			ar2,r5
+		lar			ar3,r4
+		amode		r0,2
+		li			r0,8
+		copy		r1,r1
+		li			r1,57h
+		st			mar0:r0,r1
+		li			r1,4Fh
+		st			mar0:r0,r1
+WO10:
+		li			r1,0dh
+		st			mar0:r0,r1
+		li			r1,0ah
+		st			mar0:r0,r1
+		li			r4,0D0h					; check spaces
+		li			r5,0C6h					; check symbols above 39h
+		amode		r3,4
+		copy		r7,r8
+		li			r7,9					; valie to correct
+		li			r8,0fh					; nibble mask
+		sar			r3,ar1
+		li			r1,24
+		lsr			r3:r1
+		jcl			r3:nzf,Displacement WOsmStart
+; if data will be read from UART
+		xor			r3,r3:r3
+		lsri		r3:1					; clear bit DBF in R3
+WO5:
+		ldw			r1,mar0:r0				; reading UART port
+		copy		r2,r1
+		lsri		r2:9
+		jc			r2:ndbf,Displacement WO5
+; if value present
+		size		r1,byte
+		jc			r15:nzf,Displacement WO51
+; if RAW mode selected
+		copy		r3,r1
+		jnear		Displacement WO9
+WO51:
+		add			r2,r1:r4
+		jc			r2:cf,Displacement WO52
+		jnear		Displacement WO5
+; if first nibble received
+WO52:
+		add			r2,r1:r5
+		jc			r2:ncf,Displacement WO6
+		add			r1,r1:r7
+WO6:
+		and			r3,r1:r8				; first nibble in R3
+WO7:
+		ldw			r1,mar0:r0				; reading second symbol
+		copy		r2,r1
+		lsri		r2:9
+		jc			r2:ndbf,Displacement WO7
+; if value present
+		size		r1,byte
+		add			r2,r1:r4
+		jc			r2:ncf,Displacement WO9
+; if non-space symbol
+		add			r2,r1:r5
+		jc			r2:ncf,Displacement WO8
+		add			r1,r1:r7
+WO8:
+		and			r1,r1:r8
+		lsli		r3:4
+		or			r3,r3:r1
+; if space received or symbol completed
+WO9:
+		st			mar1:r3,r3				; store byte
+		loop		r6,Displacement WO5
+; if all bytes received
+		jnear		Displacement WO1
+
+;
+;--------------------------------------
+; data read from stream
+WOsmStart:
+		li			r0,CommandStreamSelector
+		lar			ar1,r0
+		xor			r0,r0:r0
+WOsmSkip:
+		ldb			r1,mar0:r0				; reading first byte - source CPU number we skip him
+		jc			r1:nf,Displacement WOsmSkip
+WOsm5:
+		ldb			r1,mar0:r0				; reading stream
+		jc			r1:nf,Displacement WOsm5
+; if value present
+		jc			r15:nzf,Displacement WOsm51
+; if RAW mode selected
+		copy		r3,r1
+		jnear		Displacement WOsm9
+WOsm51:
+		add			r2,r1:r4
+		jc			r2:cf,Displacement WOsm52
+		jnear		Displacement WOsm5
+; if first nibble received
+WOsm52:
+		add			r2,r1:r5
+		jc			r2:ncf,Displacement WOsm6
+		add			r1,r1:r7
+WOsm6:
+		and			r3,r1:r8				; first nibble in R3
+WOsm7:
+		ldb			r1,mar0:r0				; reading second symbol
+		jc			r1:nf,Displacement WOsm7
+; if value present
+		add			r2,r1:r4
+		jc			r2:ncf,Displacement WOsm9
+; if non-space symbol
+		add			r2,r1:r5
+		jc			r2:ncf,Displacement WOsm8
+		add			r1,r1:r7
+WOsm8:
+		and			r1,r1:r8
+		lsli		r3:4
+		or			r3,r3:r1
+; if space received or symbol completed
+WOsm9:
+		st			mar1:r3,r3				; store byte
+		loop		r6,Displacement WOsm5
+; if all bytes received
+		jnear		Displacement WO1
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Write Blocked command
+;
+WriteBlocked:
+pushd	r9
+pushd	r10
+pushd	r11
+pusha	ar4
+pusha	ar5
+		li			r9,SysSelector
+		lar			ar5,r9
+		li			r10,CSR_Offset
+		lar			ar4,r10
+		li			r9,2
+		amode		r9,3
+		li			r11,0BFh
+		ldb			r10,mar2:r9
+		and			r10,r10:r11
+		st			mar2:r9,r10
+		li			r11,Offset WriteObject shl 1 
+		li			r11,Offset WriteObject shr 7
+		call		r11
+		li			r11,40h
+		or			r10,r10:r11
+		st			mar2:r9,r10
+popa	ar5
+popa	ar4
+popd	r11
+popd	r10
+popd	r9
+ret

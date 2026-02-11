@@ -1,0 +1,63 @@
+;
+;		Get performance monitor data
+;
+; mar1 - pointer to system registers
+;
+; amode
+;	R4 = 4
+;
+GetPerformance:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pusha	ar2
+pusha	ar3
+pusha	ar12
+		amode	r4,4
+		li		r0,SysSelector
+		lar		ar3,r0
+		li		r3,60h
+		lar		ar2,r3
+		li		r4,Offset IntToHex shl 1
+		li		r4,Offset IntToHex shr 7
+		sar		r1,ar13
+		li		r0,Offset String1 shl 1
+		li		r0,Offset String1 shr 7
+		lar		ar12,r0
+		copy	r5,r0
+		ldq		r2,mar1:r4
+		sar		r0,ar12
+		li		r3,16
+		call	r4
+		add		r0,r0:r3
+		lar		ar12,r0
+		li		r2,20h
+		st		mar6:r4,r2
+		ldq		r2,mar1:r4
+		sar		r0,ar12
+		call	r4
+		add		r0,r0:r3
+		lar		ar12,r0
+		li		r2,0dh
+		st		mar6:r4,r2
+		li		r2,0ah
+		st		mar6:r4,r2
+		li		r2,0
+		st		mar6:r4,r2
+		copy	r0,r5
+		li		r2,Offset OutString shl 1
+		li		r2,Offset OutString shr 7
+		call	r2
+popa	ar12
+popa	ar3
+popa	ar2
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret

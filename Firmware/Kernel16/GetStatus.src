@@ -1,0 +1,311 @@
+GetStatus:
+pusha	ar2
+pusha	ar3
+pusha	ar4
+pusha	ar5
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r9
+pushd	r10
+pushd	r11
+pushd	r12
+pushd	r13
+pushd	r14
+pushd	r15
+		amode		r4,2
+		li			r0,Offset ReadHexParam shl 1
+		li			r0,Offset ReadHexParam shr 7
+		call		r0								; R0 returns HEX value. 
+		or			r0,r0:r0
+		jc			r0:zf,Displacement GS0			; Display common status
+		jnear		Displacement GS5				; Display process status
+; Display common status
+GS0:
+		sar			r1,ar13
+		li			r2,Offset OutString shl 1
+		li			r0,IOSelector
+		lar			ar3,r0
+		li			r2,Offset OutString shr 7
+; output platform type string
+		li			r0,Offset PlatformString shl 1
+		li			r0,Offset PlatformString shr 7
+		call		r2
+		li			r4,3
+		li			r3,7
+		li			r5,0
+		ldb			r5,mar1:r4								; reading platform ID
+		and			r5,r5:r3
+		size		r5,word
+		lsli		r5:1
+		li			r0,Offset PlatformTable shl 1
+		li			r0,Offset PlatformTable shr 7
+		add			r4,r0:r5
+		ldw			r0,mar6:r4								; offset to the platform ID string
+		call		r2
+		li			r0,Offset CRString shl 1
+		li			r0,Offset CRString shr 7
+		call		r2
+; output core type string
+		li			r0,Offset CoreString shl 1
+		li			r3,SysSelector
+		li			r0,Offset CoreString shr 7
+		lar			ar3,r3
+		call		r2
+		li			r4,MPCR_offset+1
+		li			r5,0
+		ldb			r5,mar1:r4
+		size		r5,word
+		lsli		r5:1
+		li			r0,Offset CoreTable shl 1
+		li			r0,Offset CoreTable shr 7
+		add			r4,r0:r5
+		ldw			r0,mar6:r4								; offset to the platform ID string
+		call		r2
+		li			r0,Offset CRString shl 1
+		li			r0,Offset CRString shr 7
+		call		r2
+; output Kernel built
+		li			r0,Offset BuiltString shl 1
+		li			r0,Offset BuiltString shr 7
+		call		r2
+; calculate and output frequency
+		li			r0,Offset ClockString shl 1
+		li			r0,Offset ClockString shr 7
+		call		r2		
+		li			r4,PMCR_Offset+2
+		li			r3,Offset IntToStr shl 1
+		li			r0,Offset String1 shl 1
+		li			r2,0
+		ldw			r2,mar1:r4
+		lsri		r2:2
+		li			r4,7Fh
+		and			r2,r2:r4
+		copy		r4,r2
+		lsli		r4:3
+		lsli		r2:1
+		add			r2,r2:r4
+		li			r3,Offset IntToStr shr 7
+		li			r0,Offset String1 shr 7
+		call		r3
+		li			r2,Offset OutString shl 1
+		li			r2,Offset OutString shr 7
+		call		r2
+		li			r0,Offset MHZString shl 1
+		li			r0,Offset MHZString shr 7
+		call		r2
+; reading total free space
+		li			r0,Offset StatString1 shl 1
+		li			r0,Offset StatString1 shr 7
+		call		r2
+		li			r4,TFMR_Offset
+		li			r3,Offset IntToStr shl 1
+		li			r0,Offset String1 shl 1
+		ldq			r2,mar1:r4
+		li			r3,Offset IntToStr shr 7
+		li			r0,Offset String1 shr 7
+		lsli		r2:5
+		call		r3
+		li			r2,Offset OutString shl 1
+		li			r2,Offset OutString shr 7
+		call		r2
+		li			r0,Offset StatString2 shl 1
+		li			r0,Offset StatString2 shr 7
+		call		r2
+; cached free space report
+		li			r4,CFMR_offset
+		ldq			r2,mar1:r4
+		li			r0,Offset String1 shl 1
+		lsli		r2:5
+		li			r0,Offset String1 shr 7
+		call		r3
+		li			r2,Offset OutString shl 1
+		li			r2,Offset OutString shr 7
+		call		r2
+; descriptor table statistics
+		li			r12,0				; free DT entries
+		size		r12,word
+		copy		r13,r12				; free memory descriptors
+		copy		r14,r12				; object descriptors
+		copy		r15,r12				; stream descriptors
+		li			r9,1
+		li			r4,DTR_offset
+		copy		r1,r9
+		lsli		r1:2
+		add			r4,r4:r1
+		ldd			r0,mar1:r4
+		lsri		r0:8				; table counter
+		li			r1,DTSelector
+		lar			ar3,r1
+		li			r2,7				; offset to control byte
+		lar			ar2,r2
+		li			r3,32				; offset increment value
+		amode		r3,1
+		li			r4,3
+		copy		r5,r5
+		li			r5,Offset GSTable shl 1
+		li			r5,Offset GSTable shr 7
+GS1:
+		li			r2,0
+		ldb			r2,mar1:r3
+		and			r2,r2:r4
+		lsli		r2:2
+		add			r2,r2:r5
+		jump		r2
+GSTable:
+		add			r12,r12:r9
+		jnear		Displacement GS2
+		add			r13,r13:r9
+		jnear		Displacement GS2
+		add			r14,r14:r9
+		jnear		Displacement GS2
+		add			r15,r15:r9
+GS2:
+		loop		r0,Displacement GS1
+		li			r1,CodeSelector
+		li			r4,Offset OutString shl 1
+		li			r5,Offset String1 shl 1
+		li			r6,Offset IntToStr shl 1
+		li			r0,Offset StatString3 shl 1
+		li			r4,Offset OutString shr 7
+		li			r0,Offset StatString3 shr 7
+		li			r5,Offset String1 shr 7
+		li			r6,Offset IntToStr shr 7
+		call		r4
+		copy		r0,r5
+		copy		r2,r12
+		call		r6							; free DT entries
+		call		r4							; output number
+; output free memory descriptors
+		li			r0,Offset StatString4 shl 1
+		li			r0,Offset StatString4 shr 7
+		call		r4
+		copy		r0,r5
+		copy		r2,r13
+		call		r6							; free memory descriptors
+		call		r4
+; output object descriptors
+		li			r0,Offset StatString5 shl 1
+		li			r0,Offset StatString5 shr 7
+		call		r4
+		copy		r0,r5
+		copy		r2,r14
+		call		r6
+		call		r4
+; output stream descriptors
+		li			r0,Offset StatString6 shl 1
+		li			r0,Offset StatString6 shr 7
+		call		r4
+		copy		r0,r5
+		copy		r2,r15
+		call		r6
+		call		r4
+; output active processes
+		li			r7,SysSelector
+		lar			ar3,r7
+		li			r0,PLR_offset
+		amode		r0,2
+		ldq			r7,mar1:r0
+		li			r0,0
+		li			r8,48
+		lar			ar4,r0
+		fieldcopyi	r0,r7:0:24						; extract table selector
+		lar			ar5,r0
+		lsr			r7:r8							; R7 - table count
+		copy		r0,r0
+		li			r0,Offset StatString7 shl 1
+		li			r0,Offset StatString7 shr 7
+		call		r4
+		copy		r6,r6
+		li			r6,Offset IntToHex shl 1
+		li			r6,Offset IntToHex shr 7
+		amode		r2,4
+		li			r8,Offset CRString shl 1
+		li			r8,Offset CRString shr 7
+GS3:
+		copy		r0,r5
+		ldd			r2,mar2:r2
+		or			r2,r2:r2
+		jc			r2:zf,Displacement GS4
+		call		r6
+		call		r4
+		copy		r0,r8
+		call		r4
+GS4:
+		loop		r7,Displacement GS3
+GS_End:
+popd	r15
+popd	r14
+popd	r13
+popd	r12
+popd	r11
+popd	r10
+popd	r9
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+popa	ar5
+popa	ar4
+popa	ar3
+popa	ar2
+ret
+; Process status
+GS5:
+		lar			ar5,r0
+		li			r0,0
+		lar			ar4,r0
+		li			r1,CodeSelector
+		li			r4,Offset String1 shl 1
+		li			r5,Offset IntToStr shl 1
+		li			r6,Offset IntToHex shl 1
+		li			r7,Offset OutString shl 1
+		li			r4,Offset String1 shr 7
+		li			r5,Offset IntToStr shr 7
+		li			r6,Offset IntToHex shr 7
+		li			r7,Offset OutString shr 7
+		amode		r2,4
+; process timer
+		li			r2,0
+		ldd			r2,mar2:r2
+		li			r0,Offset StatString8 shl 1
+		li			r0,Offset StatString8 shr 7
+		call		r7
+		copy		r0,r4
+		call		r5
+		call		r7
+; remained free memory
+		li			r0,Offset StatString9 shl 1
+		li			r0,Offset StatString9 shr 7
+		call		r7
+		ldd			r2,mar2:r2
+		size		r2,qword
+		lsli		r2:5
+		copy		r0,r4
+		call		r5
+		call		r7
+; remained objects
+		li			r0,Offset StatString10 shl 1
+		li			r0,Offset StatString10 shr 7
+		call		r7
+		li			r2,0
+		ldd			r2,mar2:r2
+		copy		r0,r4
+		call		r5
+		call		r7
+; end of status
+		li			r0,Offset CRString shl 1
+		li			r0,Offset CRString shr 7
+		call		r7
+		jnear		Displacement GS_End

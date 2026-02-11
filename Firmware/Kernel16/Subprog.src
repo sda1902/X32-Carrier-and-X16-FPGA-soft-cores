@@ -1,0 +1,852 @@
+
+;
+;--------------------------------------------------------------------------------------------------
+; 		Output String to the UART 
+; R0 - offset, R1 - selector
+;
+OutString:
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar3
+pushd	r0
+pushd	r1
+		lar			ar0,r0
+		lar			ar1,r1
+		amode		r1,2
+		li			r1,(Offset CmdStates shl 1)+3
+		li			r1,Offset CmdStates shr 7
+		ldb			r0,mar6:r1
+		or			r0,r0:r0
+		li			r1,EchoStreamSelector
+		size		r1,qword
+		fieldcopyi	r1,r0:24:8
+		jc			r0:nzf,Displacement OS0
+		li			r1,IOSelector
+OS0:
+		li			r0,8
+		amode		r0,4
+		lar			ar2,r0
+		amode		r1,0
+		lar			ar3,r1
+OS1:
+		ldb			r0,mar0:r0
+		or			r0,r0:r0
+		jc			r0:zf,Displacement EndOS
+		st			mar1:r1,r0
+		jnear		Displacement OS1
+EndOS:
+popd	r1
+popd	r0
+popa	ar3
+popa	ar2
+popa	ar1
+popa	ar0
+ret
+		
+;
+;--------------------------------------------------------------------------------------------------
+;		Calculate object size
+; R0 - selector
+; returns R0 - size in paragraphs
+;
+GetObjectSize:
+pusha	ar0
+pusha	ar1
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+		li			r3,DTSelector
+		lar			ar1,r3
+		li			r4,0E0h
+		li			r3,8
+		amode		r0,0
+		size		r0,dword
+; search for chain start
+GOS0:
+		lsli		r0:5
+		or			r0,r0:r3					; pointer to the lower link
+		lar			ar0,r0
+		ldd			r0,mar0:r0
+		or			r0,r0:r0
+		jc			r0:nzf,Displacement GOS0
+; if first descriptor reached
+		sar			r0,ar0
+		li			r3,0ch
+		and			r0,r0:r4
+		amode		r0,4
+		li			r1,0
+		size		r1,qword
+GOS1:
+		or			r0,r0:r3
+		lar			ar0,r0
+		ldd			r0,mar0:r0					; ULS
+		li			r2,0
+		ldd			r2,mar0:r0					; lower limit
+		size		r2,qword
+		neg			r2
+		li			r4,0
+		ldd			r4,mar0:r0					; upper limit
+		size		r4,qword
+		add			r4,r4:r2
+		add			r1,r1:r4
+		lsli		r0:5
+		jcl			r0:nzf,Displacement GOS1
+		copy		r0,r1
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popa	ar1
+popa	ar0
+ret
+
+;
+;==================================================================================================
+;			Realign procedures table
+;
+AlignProcTable:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pusha	ar1
+		li			r1,ProcTableSelector
+		lar			ar1,r1
+		amode		r0,2
+		amode		r1,2
+		li			r2,64					; table limit
+		li			r3,4					; address increment value
+APT0:
+		li			r0,0
+		size		r0,qword
+APT1:
+		ldd			r4,mar0:r0
+		or			r4,r4:r4
+		jc			r4:zf,Displacement APT2
+		add			r0,r0:r3
+		xor			r4,r0:r2
+		jc			r4:nzf,Displacement APT1
+		jnear		Displacement APT_End
+; if empty entry found
+APT2:
+		copy		r1,r0
+APT3:
+		add			r1,r1:r3				; next position
+		xor			r4,r1:r2
+		jc			r4:nzf,Displacement APT4
+		jnear		Displacement APT_End
+APT4:
+		ldd			r4,mar0:r1
+		or			r4,r4:r4
+		jc			r4:zf,Displacement APT3
+; if non-zero value found
+		st			mar0:r0,r4
+		xor			r4,r4:r4
+		st			mar0:r1,r4
+		jnear		Displacement APT0
+APT_End:
+		li			r1,SysSelector
+		lar			ar1,r1
+		lsli		r0:14					; number of valid entries
+		li			r1,PLR_Offset
+		add			r1,r1:r3
+		size		r0,dword
+		st			mar0:r1,r0				; setting table pointer and length
+popa	ar1
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+
+;
+;==================================================================================================
+;				Reading object owner
+; R1 - selector R0 - return parent selector
+;
+GetParentSelector:
+pushd	r1
+pushd	r2
+pusha	ar1
+				amode	r2,2
+				li		r0,DTSelector
+				lar		ar1,r0
+				li		r2,24
+				lsli	r1:5
+				add		r2,r2:r1
+				ldd		r0,mar0:r2
+popa	ar1
+popd	r2
+popd	r1
+ret
+
+;
+;==================================================================================================
+;		Set parent selector into descriptor/descriptor chain
+; R0 - selector
+; R1 - parent
+;
+SetParentSelector:
+pusha	ar0
+pusha	ar1
+pushd	r0
+pushd	r3
+pushd	r4
+pushd	r5
+		li			r3,DTSelector
+		lar			ar1,r3
+		li			r3,8
+		li			r4,0E0h
+		li			r5,0Ch
+		amode		r0,0
+		size		r0,dword
+		size		r1,dword
+; search for chain start
+SPS0:
+		lsli		r0:5
+		or			r0,r0:r3					; pointer to the lower link
+		lar			ar0,r0
+		ldd			r0,mar0:r0
+		or			r0,r0:r0
+		jc			r0:nzf,Displacement SPS0
+; if first descriptor reached
+		li			r3,18h
+		sar			r0,ar0
+		and			r0,r0:r4
+SPS1:
+		or			r0,r0:r3
+		lar			ar0,r0
+		st			mar0:r0,r1
+		and			r0,r0:r4
+		or			r0,r0:r5
+		lar			ar0,r0
+		ldd			r0,mar0:r0
+		lsli		r0:5
+		jc			r0:zf,Displacement SPS2
+		jnear		Displacement SPS1
+SPS2:
+popd	r5
+popd	r4
+popd	r3
+popd	r0
+popa	ar1
+popa	ar0
+ret
+
+;
+;==================================================================================================
+;		Set parent selector into descriptor/descriptor chain
+; R0 - selector
+; R1 - code type
+;
+SetCodeType:
+pusha	ar0
+pusha	ar1
+pushd	r0
+pushd	r3
+pushd	r4
+pushd	r5
+		li			r3,DTSelector
+		lar			ar1,r3
+		li			r3,8
+		li			r4,0E0h
+		li			r5,0Ch
+		amode		r0,0
+		size		r0,dword
+		size		r1,dword
+; search for chain start
+SCT0:
+		lsli		r0:5
+		or			r0,r0:r3					; pointer to the lower link
+		lar			ar0,r0
+		ldd			r0,mar0:r0
+		or			r0,r0:r0
+		jc			r0:nzf,Displacement SCT0
+; if first descriptor reached
+		li			r3,1Ch
+		sar			r0,ar0
+		and			r0,r0:r4
+SCT1:
+		or			r0,r0:r3
+		lar			ar0,r0
+		st			mar0:r0,r1
+		and			r0,r0:r4
+		or			r0,r0:r5
+		lar			ar0,r0
+		ldd			r0,mar0:r0
+		lsli		r0:5
+		jcl			r0:nzf,Displacement SCT1
+popd	r5
+popd	r4
+popd	r3
+popd	r0
+popa	ar1
+popa	ar0
+ret
+
+;
+;==================================================================================================
+;		Convert integer to single
+; Input
+; 	R0 - Integer qword
+; Output
+;	R0 - Single
+;
+Integer2Single:
+pushd	r6
+pushd	r7
+pushd	r8
+			pos			r6,r0
+			copy		r7,r6
+			li			r8,23
+			neg			r6
+			add			r8,r8:r6
+			lsl			r0:r8
+			li			r8,7Fh
+			add			r7,r7:r8
+			fieldcopyi	r0,r7:23:8
+			size		r0,dword
+popd	r8
+popd	r7
+popd	r6
+ret
+
+;
+;==================================================================================================
+;		Convert single to integer
+; Input
+;	R0 - Single float
+; Output
+;	R0 - Integer qword
+;
+Single2Integer:
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+			li			r1,0
+			size		r1,qword
+			fieldcopyi	r1,r0:0:23
+			li			r2,1
+			fieldcopyi	r1,r2:23:1				; extract mantisa
+			size		r2,word
+			copy		r2,r0
+			li			r3,23
+			lsr			r2:r3					; extract exponent
+			li			r4,0ffh
+			li			r4,0
+			size		r4,qword
+			and			r2,r2:r4
+			lsri		r4:1
+			neg			r4
+			add			r3,r2:r4
+			jc			r3:nsf,displacement S2I_1
+; if number was less than 1
+			li			r0,0
+			size		r0,qword
+			jnear		displacement S2I_End
+S2I_1:
+			li			r2,23
+			neg			r3
+			add			r4,r3:r2
+			jc			r4:sf,displacement S2I_3
+			lsr			r1:r4
+			jnear		displacement S2I_4
+S2I_3:
+			neg			r4
+			lsl			r1:r4
+S2I_4:
+			size		r0,dword
+			lsli		r0:1
+			jc			r0:ndbf,displacement S2I_2
+			neg			r1
+S2I_2:
+			copy		r0,r1
+S2I_End:
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+ret
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Set AR Byte into descriptor/descriptor chain
+; R0 - selector
+; R1 - AR byte
+;
+SetARByte:
+pusha	ar0
+pusha	ar1
+pushd	r0
+pushd	r3
+pushd	r4
+pushd	r5
+		li			r3,DTSelector
+		lar			ar1,r3
+		li			r3,8
+		li			r4,0E0h
+		li			r5,0Ch
+		amode		r0,0
+		size		r0,dword
+		size		r1,byte
+; search for chain start
+SARB0:
+		lsli		r0:5
+		or			r0,r0:r3					; pointer to the lower link
+		lar			ar0,r0
+		ldd			r0,mar0:r0
+		or			r0,r0:r0
+		jc			r0:nzf,Displacement SARB0
+; if first descriptor reached
+		li			r3,07h
+		sar			r0,ar0
+		and			r0,r0:r4
+SARB1:
+		or			r0,r0:r3
+		lar			ar0,r0
+		st			mar0:r0,r1
+		and			r0,r0:r4
+		or			r0,r0:r5
+		lar			ar0,r0
+		ldd			r0,mar0:r0
+		lsli		r0:5
+		jc			r0:zf,Displacement SARB2
+		jnear		Displacement SARB1
+SARB2:
+popd	r5
+popd	r4
+popd	r3
+popd	r0
+popa	ar1
+popa	ar0
+ret
+
+;
+;--------------------------------------------------------------------------------------------------
+;		Set TaskID into descriptor/descriptor chain
+; R0 - selector
+; R1 - TaskID word
+;
+SetTaskID:
+pusha	ar0
+pusha	ar1
+pushd	r0
+pushd	r3
+pushd	r4
+pushd	r5
+		li			r3,DTSelector
+		lar			ar1,r3
+		li			r3,8
+		li			r4,0E0h
+		li			r5,0Ch
+		amode		r0,0
+		size		r0,dword
+		amode		r4,4
+; search for chain start
+STID0:
+		lsli		r0:5
+		or			r0,r0:r3					; pointer to the lower link
+		lar			ar0,r0
+		ldd			r0,mar0:r0
+		or			r0,r0:r0
+		jc			r0:nzf,Displacement STID0
+; if first descriptor reached
+		sar			r0,ar0
+		and			r0,r0:r4
+STID1:
+		li			r3,5
+		or			r3,r0:r3
+		lar			ar0,r3
+		size		r1,byte
+		st			mar0:r4,r1
+		size		r1,word
+		csri		r1:8
+		size		r1,byte
+		st			mar0:r4,r1
+		size		r1,word
+		csri		r1:8
+		and			r0,r0:r4
+		or			r0,r0:r5
+		lar			ar0,r0
+		ldd			r0,mar0:r0
+		lsli		r0:5
+		jc			r0:zf,Displacement STID2
+		jnear		Displacement STID1
+STID2:
+popd	r5
+popd	r4
+popd	r3
+popd	r0
+popa	ar1
+popa	ar0
+ret
+		
+;
+;--------------------------------------------------------------------------------------------------
+; Conversion 64-bit integer into HEX string
+; R0 -  offset destination string, R1 - selector, R2 - integer
+;
+IntToHex:
+pusha	ar0
+pusha	ar1
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+		size		r2,qword
+		li			r7,16
+		add			r0,r0:r7
+		lar			ar0,r0
+		lar			ar1,r1
+		li			r1,0Fh
+		li			r3,30h
+		amode		r0,5
+		li			r4,0C6h
+		li			r0,0
+		li			r5,7
+		st			mar0:r0,r0
+ITH1:
+		and			r0,r2:r1
+		size		r0,byte
+		or			r0,r0:r3
+		add			r6,r0:r4
+		jc			r6:ncf,Displacement ITH2
+		add			r0,r0:r5
+ITH2:
+		st			mar0:r0,r0
+		lsri		r2:4
+		loop		r7,Displacement ITH1
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+popa	ar1
+popa	ar0
+ret
+
+;
+;--------------------------------------------------------------------------------------------------
+; Conversion 64-bit integer into string
+; R0 -  offset destination string, R1 - selector, R2 - integer
+;
+IntToStr:
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar3
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+		size	r2,qword
+		lar		ar0,r0
+		lar		ar1,r1
+		li		r3,54
+		li		r5,(Offset IntToStrBCD) shl 1
+		li		r5,(Offset IntToStrBCD) shr 7
+		lar		ar2,r5
+		amode	r5,4
+		li		r5,CodeSelector
+		lar		ar3,r5
+		li		r6,0
+		or		r2,r2:r2
+		li		r0,63
+		copy	r0,r0
+		jc		r2:nzf,Displacement ITS1
+		li		r0,30h
+		st		mar0:r5,r0
+		jnear   Displacement ITS5
+ITS1:
+		ldq		r5,mar1:r5						; adding value
+		copy	r1,r2
+		csri	r1:1
+		lsri	r2:1
+		asr		r1:r0
+		and		r5,r5:r1
+		add		r6,r6:r5
+		daa		r6
+		loop	r3,Displacement ITS1
+; output BCD to string
+		li		r1,60
+		li		r5,0Fh
+		li		r2,-4
+		li		r4,30h
+		li		r3,0
+ITS3:
+		copy	r0,r6
+		lsr		r0:r1
+		or		r3,r3:r3
+		and		r0,r0:r5
+		jc		r3:nzf,Displacement ITS6
+		jc		r0:zf,Displacement ITS4
+ITS6:
+		or		r0,r0:r4
+		size	r0,byte
+		st		mar0:r5,r0
+		or		r3,r3:r0
+ITS4:
+		or		r1,r1:r1
+		jc		r1:zf,Displacement ITS5
+		add		r1,r1:r2
+		jnear	Displacement ITS3
+ITS5:
+		li		r0,0
+		st		mar0:r5,r0
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+popa	ar3
+popa	ar2
+popa	ar1
+popa	ar0
+ret
+; BCD constants
+		align 8
+IntToStrBCD:
+	qword	1, 2, 4, 8, 16h, 32h, 64h, 128h, 256h, 512h, 1024h, 2048h, 4096h, 8192h, 16384h, 32768h
+	qword	65536h, 131072h, 262144h, 524288h, 1048576h, 2097152h, 4194304h, 8388608h, 16777216h, 33554432h, 67108864h, 134217728h, 268435456h, 536870912h, 1073741824h, 2147483648h
+	qword	4294967296h, 8589934592h, 17179869184h, 34359738368h, 68719476736h, 137438953472h, 274877906944h, 549755813888h, 1099511627776h, 2199023255552h, 4398046511104h
+	qword	8796093022208h, 17592186044416h, 35184372088832h, 70368744177664h, 140737488355328h, 281474976710656h, 562949953421312h, 1125899906842624h, 2251799813685248h
+	qword	4503599627370496h, 9007199254740992h
+
+;
+;--------------------------------------------------------------------------------------------------
+;	Converting command line parameter from HEX 
+; MAR3 - pointer to source string
+; R0 - result value
+;
+ReadHexParam:
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+		amode	r0,4
+		li		r0,0
+		li		r1,0D0h
+		li		r3,0C6h
+		li		r4,0C9h
+		li		r5,0Fh
+		size	r6,qword
+		xor		r6,r6:r6
+; conversion cycle
+RHP0:
+		ldb		r0,mar3:r0
+		add		r2,r0:r1				; adding 0D0h
+		jc		r2:cf,Displacement RHP2
+; if end of string found
+RHP1:
+		jnear	Displacement RHP_End
+; if symbol above 30h or equal
+RHP2:
+		add		r2,r0:r3				; checking values from 41h by adding 0C6h
+		jc		r2:ncf,Displacement RHP3
+; if value above 39h
+		add		r0,r0:r4				; adding 0C9h 
+RHP3:
+		and		r0,r0:r5				; mask 0Fh
+		lsli	r6:4
+		or		r6,r6:r0
+		jnear	Displacement RHP0
+; end of string conversion
+RHP_End:
+		sar		r1,ar6
+		li		r2,-1
+		copy	r0,r6
+		add		r1,r1:r2
+		lar		ar6,r1
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+ret
+
+;
+;--------------------------------------------------------------------------------------------------
+;	Conversion parameter from integer representation
+; MAR3 - pointer to the source string
+; R0 - result value
+;
+ReadDecParam:
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+		xor			r1,r1:r1
+		li			r1,0
+		li			r4,0Fh
+		amode		r1,4
+		li			r5,0D0h
+		size		r0,qword
+		xor			r0,r0:r0
+; conversion cycle
+RDP0:
+		ldb			r1,mar3:r1
+		add			r2,r1:r5				; adding 0D0h
+		jc			r2:cf,Displacement RDP1
+; if end of string found
+		jnear	Displacement RDP_End
+; if symbol above 30h or equal
+RDP1:
+		copy		r3,r0
+		lsli		r0:3
+		and			r1,r1:r4				; and 0Fh
+		lsli		r3:1
+		add			r0,r0:r3
+		add			r0,r0:r1
+		jnear		Displacement RDP0
+; end of processing
+RDP_End:
+		sar			r3,ar6
+		li			r4,-1
+		add			r3,r3:r4
+		lar			ar6,r3
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+ret
+
+;
+;--------------------------------------------------------------------------------------------------
+;			Get position of register with a sendmsg parameter
+;
+; Returned:
+; MAR1 - pointer to the position
+;
+GetParamPointer:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r8
+pushd	r9
+pusha	ar1
+			amode		r2,2
+;	1 getting instruction pointer of the SENDMSG instruction from PSO
+;		need to know instruction parameter
+			li			r0,SysSelector
+			lar			ar1,r0
+			li			r2,CPSR_Offset
+			ldd			r1,mar0:r2
+			lar			ar3,r1
+			li			r2,ContextStackOffset_PSO_position
+			ldd			r3,mar1:r2							; start of context stact
+			li			r2,ContextStackPointer_PSO_position
+			ldd			r4,mar1:r2
+			add			r4,r3:r4							; context length position
+			li			r5,-8
+			add			r2,r4:r5							; return pointer
+			ldd			r6,mar1:r2							; reading pointer to previous context
+			add			r6,r3:r6							; pointer to context that called sendmsg instruction
+			li			r5,16								; position to IP
+			add			r2,r5:r6							; pointer to IP
+			ldd			r8,mar1:r2							; IP
+			lsri		r5:1
+			add			r2,r5:r6
+			ldd			r2,mar1:r2							; reading CSR for to check the frame type
+			lsli		r2:5
+			jcl			r2:dbf,displacement GPP0
+			li			r5,576
+			li			r5,576 shr 8
+			add			r2,r5:r6
+			ldd			r9,mar1:r2							; code selector
+			li			r5,-2
+			add			r2,r8:r5
+			lar			ar1,r9
+			li			r0,0
+			ldw			r0,mar0:r2							; reading sendmsg instruction
+; checkin instruction
+			li			r1,0FFh
+			li			r3,0F0h
+			copy		r2,r0
+			li			r1,0fh
+			li			r3,0ah
+			and			r0,r0:r1
+			xor			r0,r0:r3
+			jc			r0:zf,displacement GPP1
+; if no sendmsg instruction generate exception to kill process
+			li			r2,0
+			lar			ar2,r2
+			jnear		displacement GPPEnd
+; if valid sendmsg inctruction
+GPP1:
+			size		r2,dword
+			lsri		r2:12
+			lsli		r2:3								; convert register index to the offset
+			li			r1,88
+			add			r2,r2:r1
+			add			r2,r2:r6							; pointer to the register position in PSO
+			lar			ar2,r2
+GPPEnd:
+popa	ar1
+popd	r9
+popd	r8
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+
+; processing for X32 thread mode
+GPP0:
+			li			r5,960
+			li			r5,960 shr 8
+			add			r2,r5:r6
+			ldd			r9,mar1:r2							; code selector
+			li			r5,-4
+			add			r2,r8:r5
+			lar			ar1,r9
+			li			r0,0
+			ldd			r0,mar0:r2							; reading sendmsg instruction
+; checkin instruction
+			copy		r2,r0
+			size		r0,byte
+			li			r3,0C0h
+			xor			r0,r0:r3
+			jc			r0:zf,displacement GPP2
+; if no sendmsg instruction generate exception to kill process
+			li			r2,0
+			lar			ar2,r2
+			jnear		displacement GPPEnd
+; if valid sendmsg inctruction
+GPP2:
+			lsri		r2:12
+			lsri		r2:12
+			lsli		r2:3								; convert register index to the offset
+			li			r1,88
+			add			r2,r2:r1
+			add			r2,r2:r6							; pointer to the register position in PSO
+			lar			ar2,r2
+			jnear		displacement GPPEnd

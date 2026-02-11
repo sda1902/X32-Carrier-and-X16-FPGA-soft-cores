@@ -1,0 +1,119 @@
+;
+;	Get CPU list
+;
+CPUList:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pusha	ar1
+pusha	ar12
+			amode		r2,2
+			amode		r3,3
+			amode		r4,4
+; reset the CPU Flags
+			li			r1,Offset CPUFlags shl 1
+			li			r1,Offset CPUFlags shr 7
+			lar			ar12,r1
+			li			r2,MPCR_Offset
+			ldb			r7,mar2:r2
+			li			r2,0
+			size		r2,qword
+			st			mar6:r4,r2
+			st			mar6:r4,r2
+			st			mar6:r4,r2
+			st			mar6:r4,r2
+			lar			ar12,r1
+; initialize cycle
+			li			r4,1
+			copy		r5,r4							; start CPU number and constant +1
+			li			r1,DTSelector
+			copy		r6,r2							; start count of the cores that is found
+			or			r7,r7:r7
+			jcl			r7:zf,Displacement CPUL4
+; cycle
+CPUCycle:
+			copy		r0,r4
+			size		r0,qword
+			lsli		r0:12
+			lsli		r0:12
+			or			r0,r0:r1
+			lar			ar1,r0
+			ldb			r0,mar0:r2						; try to read byte from a distant object
+			jcl			r0:nf,Displacement CPUL1
+; if CPU present then set the flag
+			add			r6,r6:r5
+			copy		r3,r4
+			lsri		r3:3
+			li			r0,7
+			and			r0,r0:r4
+			copy		r7,r5
+			lsl			r7:r0
+			ldb			r0,mar6:r3
+			or			r0,r0:r7
+			st			mar6:r3,r0
+CPUL1:
+			add			r4,r4:r5
+			jcl			r4:nzf,Displacement CPUCycle
+; output results
+			copy		r2,r6
+			lsli		r2:2
+			add			r2,r2:r5
+CPUL4:
+			li			r0,Offset String1 shl 1
+			li			r0,Offset String1 shr 7
+			sar			r1,ar13
+			li			r7,Offset IntToHex shl 1
+			li			r7,Offset IntToHex shr 7
+			call		r7
+			li			r6,Offset OutString shl 1
+			li			r6,Offset OutString shr 7
+			call		r6
+			li			r0,Offset CRString shl 1
+			li			r0,Offset CRString shr 7
+			call		r6
+			copy		r4,r5							; start number of CPU
+; output cycle
+CPUL2:
+			copy		r3,r4
+			lsri		r3:3
+			li			r0,7
+			and			r0,r0:r4
+			ldb			r2,mar6:r3
+			lsr			r2:r0
+			and			r2,r2:r5
+			jcl			r2:zf,Displacement CPUL3
+; if core present
+			li			r0,Offset String1 shl 1
+			copy		r2,r4
+			li			r0,Offset String1 shr 7
+			call		r7
+			li			r2,14
+			add			r0,r0:r2
+			call		r6
+			li			r0,Offset CRString shl 1
+			li			r0,Offset CRString shr 7
+			call		r6
+CPUL3:
+			add			r4,r4:r5
+			jcl			r4:nzf,Displacement CPUL2
+End_CPUList:
+popa	ar12
+popa	ar1
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; CPU flags
+		align 8
+CPUFlags:
+	qword 		0,0,0,0

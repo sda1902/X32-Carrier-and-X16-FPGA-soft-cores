@@ -1,0 +1,142 @@
+;
+;			Kill process command
+;
+KillProcess:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pusha	ar1
+pusha	ar2
+pusha	ar3
+		li			r1,Offset ReadHexParam shl 1
+		li			r1,Offset ReadHexParam shr 7
+		call		r1
+		or			r0,r0:r0
+		jc			r0:zf,Displacement KP1
+		jnear		Displacement KP2
+; if no params entered
+KP1:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; R0 - process object selector
+KP2:
+		lar			ar3,r0
+		li			r1,process_PSO_offset
+		amode		r1,2
+		li			r4,0
+		size		r4,dword
+		ldd			r0,mar1:r1			; reading PSO Selector from the process object
+		st			mar1:r1,r4			; setting PSO selector to zero in the process object
+; calculate address of context
+		li			r1,52
+		lar			ar3,r0
+		li			r2,0
+		copy		r3,r2
+		ldd			r2,mar1:r1			; reading context stack offset
+		li			r1,60
+		ldd			r3,mar1:r1			; reading context stack pointer
+		add			r2,r2:r3
+		li			r4,8
+		add			r2,r2:r4
+		lar			ar2,r2				; offset to CSR position
+		amode		r1,3
+		li			r2,Offset SetParentSelector shl 1
+		li			r2,Offset SetParentSelector shr 7
+		li			r4,0
+		copy		r5,r0
+; free SS0
+		li			r1,24
+		ldd			r4,mar1:r1
+		copy		r0,r4
+		li			r1,PSOSelector
+		call		r2
+		memalloc	r4
+; free SS1
+		li			r1,40
+		ldd			r4,mar1:r1
+		copy		r0,r4
+		li			r1,PSOSelector
+		call		r2
+		memalloc	r4
+; free SS2
+		li			r1,56
+		ldd			r4,mar1:r1
+		copy		r0,r4
+		li			r1,PSOSelector
+		call		r2
+		memalloc	r4
+; free SS3
+		li			r1,72
+		ldd			r4,mar1:r1
+		copy		r0,r4
+		li			r1,PSOSelector
+		call		r2
+		memalloc	r4
+		copy		r0,r5
+; free all objects, which created by process
+		li			r2,SysSelector
+		li			r1,4
+		amode		r1,2
+		lar			ar3,r2
+		ldd			r3,mar1:r1			; reading DT limit
+		li			r2,DTSelector
+		lsri		r3:8
+		lar			ar3,r2
+		li			r1,24
+		lar			ar2,r1
+		li			r2,32
+		amode		r2,1
+KP3:
+		sar			r4,ar2				; store address
+		ldd			r1,mar1:r2			; reading owner
+		xor			r1,r1:r0
+		jc			r1:zf,Displacement KP4
+		loop		r3,Displacement KP3
+		jnear		Displacement KP5
+; if descriptor found
+KP4:
+		lsri		r4:5				; extract selector value
+		memalloc	r4
+		loop		r3,Displacement KP3
+; change PSO owner
+KP5:
+		li			r2,Offset SetParentSelector shl 1
+		li			r2,Offset SetParentSelector shr 7
+		li			r1,PSOSelector
+		size		r1,dword
+		call		r2
+		memalloc	r0					; remove PSO
+		amode		r0,2
+		li			r0,(Offset CmdStates shl 1)+3
+		li			r0,Offset CmdStates shr 7
+		li			r1,0
+		ldb			r1,mar6:r0
+		size		r1,qword
+		lsli		r1:12
+		lsli		r1:12
+		jc			r1:zf,Displacement KP6
+		li			r0,EchoStreamSelector
+		or			r0,r0:r1
+		lar			ar1,r0
+KP6:		
+		li			r0,8
+		li			r1,4Bh
+		st			mar0:r0,r1
+		li			r2,50h
+		st			mar0:r0,r2
+		li			r3,0dh
+		st			mar0:r0,r3
+		li			r1,0ah
+		st			mar0:r0,r1
+		jnear		Displacement KP1

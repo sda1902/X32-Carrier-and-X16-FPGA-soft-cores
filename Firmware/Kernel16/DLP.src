@@ -1,0 +1,170 @@
+;
+;	MAR0 - pointer to system registers
+;	MAR1 - pointer to current PSO
+;	MAR2 - pointer to the SENDMSG / pointer to current process object
+;
+DynamicLinkProcedure:
+			amode		r2,2
+			amode		r4,4
+			amode		r10,2
+;	1 getting instruction pointer of the SENDMSG instruction from PSO
+;		need to know instruction parameter
+			li			r0,SysSelector
+			lar			ar1,r0
+			li			r2,CPSR_Offset
+			ldd			r1,mar0:r2
+			lar			ar3,r1
+			li			r2,ContextStackOffset_PSO_position
+			li			r3,0
+			ldd			r3,mar1:r2							; start of context stact
+			li			r2,ContextStackPointer_PSO_position
+			ldd			r4,mar1:r2
+			add			r4,r3:r4							; context length position
+			li			r5,-8
+			size		r5,qword
+			add			r2,r4:r5							; return pointer
+			ldd			r6,mar1:r2							; reading pointer to previous context
+			add			r6,r3:r6							; pointer to context that called sendmsg instruction
+			li			r5,8
+			add			r2,r5:r6							; pointer to the CSR image
+			ldd			r7,mar1:r2
+			li			r5,16								; position to IP
+			add			r2,r5:r6							; pointer to IP
+			copy		r10,r2
+			ldd			r8,mar1:r2							; IP
+			lsli		r7:5
+			jcl			r7:dbf,displacement DLP00
+; if X16 mode thread
+			li			r5,576
+			li			r5,576 shr 8
+			add			r2,r5:r6
+			li			r5,-2
+			size		r5,qword
+			ldd			r9,mar1:r2							; code selector
+			add			r2,r8:r5
+			lar			ar5,r9
+			li			r0,0
+			ldw			r0,mar2:r2							; reading sendmsg instruction
+			st			mar1:r10,r2							; reseting IP pointer
+; checkin instruction
+			li			r1,0FFh
+			li			r3,0F0h
+			copy		r2,r0
+			li			r1,0fh
+			li			r3,0ah
+			and			r0,r0:r1
+			xor			r0,r0:r3
+			jc			r0:zf,displacement DLP1
+; if no sendmsg instruction generate exception to kill process
+			copy		r2,r1
+			size		r2,dword
+			lsli		r2:4
+			ldd			r0,mar1:r2
+DLPError:
+			jnear		displacement DLPError
+; if valid sendmsg inctruction
+DLP1:
+			size		r2,dword
+			lsri		r2:12
+			lsli		r2:3								; convert register index to the offset
+			jnear		displacement DLP4
+; X32 thread
+DLP00:
+			li			r5,960
+			li			r5,960 shr 8
+			add			r2,r5:r6
+			li			r5,-4
+			size		r5,qword
+			ldd			r9,mar1:r2							; code selector
+			add			r2,r8:r5
+			lar			ar5,r9
+			li			r0,0
+			ldd			r0,mar2:r2							; reading sendmsg instruction
+			st			mar1:r10,r2							; reseting IP pointer
+; checkin instruction
+			size		r0,byte
+			li			r3,0C0h
+			xor			r0,r0:r3
+			jc			r0:zf,displacement DLP01
+; if no sendmsg instruction generate exception to kill process
+			copy		r2,r1
+			size		r2,dword
+			lsli		r2:4
+			ldd			r0,mar1:r2
+			jnear		displacement DLPError
+; if valid sendmsg inctruction
+DLP01:
+			size		r0,dword
+			copy		r2,r0
+			lsri		r2:12
+			lsri		r2:12
+			li			r0,1Fh
+			and			r2,r2:r0
+			lsli		r2:3								; convert register index to the offset
+DLP4:
+			li			r1,88
+			add			r2,r2:r1
+			add			r2,r2:r6							; pointer to the register
+			li			r4,0
+			ldd			r4,mar1:r2							; reading sendmsg parameter
+; setting pointer to the process object
+			li			r2,Offset GetParentSelector shl 1
+			li			r2,Offset GetParentSelector shr 7
+			sar			r1,ar3
+			call		r2
+			lar			ar5,r0								; pointer to the process object
+			li			r2,process_ECnt_offset
+			li			r3,0
+			ldw			r3,mar2:r2							; reading export table count
+			li			r2,80h
+			li			r2,0
+			size		r3,qword
+			lsli		r3:6
+			add			r2,r2:r3							; offset to import table
+			lsli		r4:7								; offset to imported procedure
+			add			r2,r2:r4
+			sar			r11,ar3								; store current PSO selector
+			lar			ar2,r2
+			lar			ar3,r0								; MAR1 - pointer to the imported procedure
+			li			r7,Offset SearchExportedProcedure shl 1
+			li			r7,Offset SearchExportedProcedure shr 7
+;
+;	Цикл ожидания появления искомой процедуры
+;
+DLPWaitProcedure:
+			call		r7
+			or			r0,r0:r0
+			jc			r0:zf,displacement DLPWaitProcedure
+; setting pointer to the import table of current PSO
+			lar			ar9,r11
+			lsri		r4:4
+			li			r2,ImportTableOffset_PSO_position
+			ldd			r2,mar4:r2
+			add			r2,r2:r4
+			st			mar4:r2,r0							; update import entry
+; setting pointer to the process table
+			li			r1,0ffh
+			li			r1,0ffh
+			li			r1,0ffh
+			li			r1,0
+			li			r1,0
+			and			r1,r1:r0							; extract PSO selector
+			size		r1,dword
+			li			r3,ProcTableSelector
+			lar			ar3,r3
+;
+;	Цикл ожидания появления процесса в таблице процессов
+;
+DLPWaitProcess:
+			li			r5,ProcTableLength
+			li			r0,0
+			lar			ar2,r0
+DLP2:
+			ldd			r0,mar1:r4
+			xor			r0,r0:r1
+			jc			r0:zf,displacement DLP3
+			loop		r5,displacement DLP2
+			jnear		displacement DLPWaitProcess
+; end of dynamic link
+DLP3:
+			endmsg

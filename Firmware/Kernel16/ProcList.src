@@ -1,0 +1,171 @@
+ProcessList:
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar3
+pusha	ar4
+pusha	ar5
+pusha	ar12
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r8
+pushd	r9
+pushd	r10
+;
+; MAR0 - pointer to the descriptor table
+;
+; amode
+;	R4=4
+;	R2=2
+;	R1=1
+;	R0=0
+			li			r0,DTSelector
+			lar			ar1,r0
+			li			r1,7
+			lar			ar0,r1							; offset to descriptor control byte
+			amode		r2,2
+			li			r2,(Offset CmdStates shl 1)+3
+			li			r2,Offset CmdStates shr 7
+			li			r0,0
+			ldb			r0,mar6:r2
+			size		r0,qword
+			lsli		r0:12
+			lsli		r0:12
+			li			r2,EchoStreamSelector
+			size		r2,qword
+			or			r2,r2:r0
+			jc			r0:nzf,Displacement PList00
+			li			r2,IOSelector
+PList00:
+			lar			ar3,r2
+			li			r3,8
+			lar			ar2,r3
+			li			r4,SysSelector
+			lar			ar5,r4
+			li			r2,4
+			ldd			r4,mar2:r2
+			lsri		r4:8
+			li			r6,Offset IntToHex shl 1
+			li			r7,Offset OutString shl 1
+			li			r6,Offset IntToHex shr 7
+			li			r7,Offset OutString shr 7
+			amode		r4,4
+			amode		r1,1
+			amode		r0,0
+			li			r1,32
+; R4 - DT counter
+PListCycle:
+			sar			r3,ar0							; store index
+			ldb			r0,mar0:r1						; reading control byte
+			li			r2,13h
+			and			r0,r0:r2
+			li			r2,12h
+			xor			r0,r0:r2
+			jcl			r0:zf,Displacement PList1
+PList0:
+			loop		r4,Displacement PListCycle
+			li			r2,0
+			size		r2,qword
+			li			r0,Offset String1 shl 1
+			li			r0,Offset String1 shr 7
+			sar			r1,ar13
+			call		r6								; convert string
+			call		r7
+			li			r0,Offset CRString shl 1
+			li			r0,Offset CRString shr 7
+			call		r7
+popd	r10
+popd	r9
+popd	r8
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+popa	ar12
+popa	ar5
+popa	ar4
+popa	ar3
+popa	ar2
+popa	ar1
+popa	ar0
+ret
+; if readable object in DT
+PList1:
+			copy		r2,r3
+			li			r0,17
+			add			r2,r2:r0
+			ldd			r0,mar0:r2
+			or			r0,r0:r0						; checkin parrent PSO selector
+			jcl			r0:zf,displacement PList0
+			li			r0,50h
+			lsri		r3:5							; extracting selector
+			li			r0,52h
+			lar			ar5,r3
+			li			r0,4Fh
+			li			r2,0
+			li			r0,43h
+			lar			ar4,r2
+			li			r0,45h
+			ldq			r3,mar2:r2
+			li			r0,53h
+			li			r0,53h
+			xor			r0,r0:r3
+			jcl			r0:nzf,Displacement PList0
+; if process object found
+			li			r2,48h
+			li			r9,0
+			ldd			r9,mar2:r2
+			size		r9,qword
+			li			r0,(Offset String1 shl 1)+17
+			li			r0,((Offset String1 shl 1)+17) shr 8
+			copy		r10,r0
+			size		r10,qword
+			neg			r10
+			lar			ar12,r0
+; move name of object to the string
+			li			r1,8
+			lar			ar4,r1
+PList2:
+			ldb			r0,mar2:r4
+			st			mar6:r4,r0
+			or			r0,r0:r0
+			jc			r0:nzf,displacement PList2
+			li			r8,36
+			sar			r0,ar12
+			add			r0,r0:r10
+			add			r2,r0:r8
+			li			r0,Offset String1 shl 1
+			li			r1,CodeSelector
+			li			r0,Offset String1 shr 7
+			call		r6
+			li			r8,16
+			add			r2,r0:r8
+			li			r5,20h
+			st			mar6:r2,r5
+			call		r7								; out string with number of bytes and name of object
+			li			r8,20h
+			st			mar1:r0,r8
+			sar			r2,ar5
+			call		r6
+			call		r7
+			st			mar1:r0,r8
+			copy		r2,r9
+			call		r6
+			call		r7
+			li			r0,Offset CRString shl 1
+			li			r0,Offset CRString shr 7
+			call		r7
+			li			r1,32
+			copy		r1,r1
+			jnear		displacement PList0
+			

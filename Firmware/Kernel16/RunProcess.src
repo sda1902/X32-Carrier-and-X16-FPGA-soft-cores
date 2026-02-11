@@ -1,0 +1,104 @@
+;
+;			Run process
+;
+RunProcess:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pusha	ar1
+pusha	ar2
+pusha	ar3
+		li			r1,Offset ReadHexParam shl 1
+		li			r1,Offset ReadHexParam shr 7
+		call		r1
+		or			r0,r0:r0
+		jc			r0:zf,Displacement RP1
+		jnear		Displacement RP2
+; if no params entered
+RP1:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; is selector entered
+RP2:
+		lar			ar3,r0
+		li			r1,0
+		amode		r1,2
+		li			r2,50h
+		ldq			r3,mar1:r1
+		li			r2,52h
+		li			r2,4Fh
+		li			r2,43h
+		li			r2,45h
+		li			r2,53h
+		li			r2,53h
+		li			r2,0
+		xor			r2,r2:r3
+		jc			r2:zf,Displacement RP3
+		jnear		Displacement RP1
+; if signature present
+RP3:
+		li			r1,process_PSO_offset
+		ldd			r2,mar1:r1					; reading PSO Selector
+		or			r2,r2:r2
+		jc			r2:nzf,Displacement RP4
+		jnear		Displacement RP1
+; if selector not zero
+RP4:
+		li			r0,ProcTableSelector
+		lar			ar3,r0
+		li			r1,0
+		lar			ar2,r1
+		amode		r0,4
+		li			r3,16
+RP5:
+		sar			r4,ar2
+		ldd			r1,mar1:r0
+		xor			r5,r1:r2
+		jc			r5:nzf,Displacement RP55
+		jnear		Displacement RP7
+RP55:
+		or  		r1,r1:r1
+		jc			r1:zf,Displacement RP6
+		loop		r3,Displacement RP5
+		jnear		Displacement RP1
+RP6:
+		lar			ar2,r4
+		st			mar1:r0,r2					; store PSO selector into task table
+		li			r1,Offset AlignProcTable shl 1
+		li			r1,Offset AlignProcTable shr 7
+		call		r1
+RP7:
+		amode		r0,2
+		li			r0,(Offset CmdStates shl 1)+3
+		li			r0,Offset CmdStates shr 7
+		li			r1,0
+		ldb			r1,mar6:r0
+		size		r1,qword
+		lsli		r1:12
+		lsli		r1:12
+		jc			r1:zf,Displacement RP8
+		li			r0,EchoStreamSelector
+		or			r0,r0:r1
+		lar			ar1,r0
+RP8:
+		li			r0,8
+		li			r1,52h
+		st			mar0:r0,r1
+		li			r2,50h
+		st			mar0:r0,r2
+		li			r3,0dh
+		st			mar0:r0,r3
+		li			r1,0ah
+		st			mar0:r0,r1
+		jnear		Displacement RP1

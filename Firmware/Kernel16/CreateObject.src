@@ -1,0 +1,97 @@
+CreateObject:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pusha	ar2
+pusha	ar3
+		li			r2,Offset ReadDecParam shl 1
+		li			r1,-1
+		li			r2,Offset ReadDecParam shr 7
+		call 		r2
+		add			r2,r0:r1
+		li			r1,1
+		lsri		r2:5
+		amode		r1,4
+		li			r3,32
+		xor			r4,r4:r4
+		lsri		r4:1
+		add			r4,r2:r1
+		lsl			r4:r3
+		memalloc	r4
+		or			r4,r4:r4
+		jc			r4:zf,Displacement CO0
+		jnear		Displacement CO1
+; report of command status
+CO0:
+		copy		r2,r4
+		lar			ar6,r10
+		li			r0,43h
+		st			mar3:r1,r0
+		li			r0,4Fh
+		st			mar3:r1,r0
+		li			r0,20h
+		st			mar3:r1,r0
+		li			r3,Offset IntToHex shl 1
+		sar			r0,ar6
+		li			r3,Offset IntToHex shr 7
+		sar			r1,ar7
+		call		r3
+		li			r2,Offset OutString shl 1
+		li			r2,Offset OutString shr 7
+		copy		r0,r10
+		call		r2
+		li			r0,Offset CRString shl 1
+		li			r0,Offset CRString shr 7
+		call		r2
+popa	ar3
+popa	ar2
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if object created
+CO1:
+		ldb			r0,mar3:r1
+		or			r0,r0:r0
+		jc			r0:nzf,Displacement CO2
+		jnear		Displacement CO0				; if no more parameters specified
+; if AR byte specified
+CO2:
+		li			r6,0							; default TASK ID
+		li			r1,Offset ReadHexParam shl 1
+		li			r1,Offset ReadHexParam shr 7
+		call		r1
+		copy		r5,r0							; r4 - selector, r5 - AR
+		ldb			r0,mar3:r1
+		or			r0,r0:r0
+		jc			r0:nzf,Displacement CO3
+		jnear		Displacement CO4
+; if TASK ID specified
+CO3:
+		call		r1
+		copy		r6,r0
+CO4:
+		li			r0,DTSelector
+		lar			ar3,r0
+		copy		r0,r4
+		lsli		r0:5
+		lar			ar2,r0							; base address of descriptor
+		li			r0,5
+		amode		r0,6
+		copy		r1,r6
+		size		r1,byte
+		st			mar1:r0,r1
+		lsri		r6:8
+		size		r6,byte
+		st			mar1:r0,r6
+		size		r5,byte
+		st			mar1:r0,r5
+		jnear		Displacement CO0

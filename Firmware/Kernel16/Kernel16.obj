@@ -1,0 +1,71 @@
+0 COREONE
+	Iset
+	Owner: -1
+1 CORESET
+	Instructions
+	Owner: 0
+2 CTRLMAR
+	Field
+	Owner: 0
+3 DATAMAR
+	Field
+	Owner: 0
+4 FCPAR1
+	Field
+	Owner: 0
+5 FCPAR2
+	Field
+	Owner: 0
+6 JUMPDISP
+	Field
+	Owner: 0
+7 SHORTDISP
+	Field
+	Owner: 0
+8 LONGDISP
+	Field
+	Owner: 0
+9 CCODE
+	Field
+	Owner: 0
+10 DATABYTE
+	Field
+	Owner: 0
+11 MAR
+	Field
+	Owner: 0
+12 DST
+	Field
+	Owner: 0
+13 SRC2
+	Field
+	Owner: 0
+14 SRC3
+	Field
+	Owner: 0
+15 SRC4
+	Field
+	Owner: 0
+16 SRC1
+	Field
+	Owner: 0
+17 SHIFTPARAMETER
+	Field
+	Owner: 0
+18 OPSIZE
+	Field
+	Owner: 0
+19 AMODE
+	Field
+	Owner: 0
+20 ADST
+	Field
+	Owner: 0
+21 ASRC
+	Field
+	Owner: 0
+22 KERNEL16
+	Object
+	Owner: -1
+	Instruction Set=COREONE
+	Granularity=2

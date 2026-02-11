@@ -1,0 +1,144 @@
+;
+;
+GetCatalog:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pushd	r5
+pushd	r6
+pushd	r7
+pushd	r13
+pusha	ar0
+pusha	ar1
+pusha	ar2
+pusha	ar3
+		amode		r0,2
+; set master CPU number
+		li			r0,(Offset CmdStates shl 1)+3
+		li			r0,Offset CmdStates shr 7
+		li			r13,0
+		ldb			r13,mar6:r0
+		size		r13,qword
+		lsli		r13:12
+		lsli		r13:12
+		li			r3,0									; count of files
+		size		r3,word
+; check Flash ready
+		li			r0,FlashCtrlSelector
+		or			r0,r0:r13
+		lar			ar1,r0
+		li			r6,5
+		li			r0,2
+		st			mar0:r0,r6
+		li			r7,FlashDataSelector
+		or			r7,r7:r13
+		lar			ar1,r7
+		li			r0,0
+GC0:
+		ldb			r6,mar0:r0
+		lsri		r6:1
+		jc			r6:dbf,Displacement GC0
+		li			r0,FlashCtrlSelector
+		or			r0,r0:r13
+		lar			ar1,r0
+		li			r0,2
+		li			r6,0bh								; read instruction
+		st			mar0:r0,r6
+		li			r0,IOSelector
+		lar			ar1,r7
+		lar			ar3,r0
+		amode		r1,1
+		li			r1,0
+		li			r1,10h
+		amode		r4,4
+		lar			ar0,r1
+		li			r4,32
+		copy		r4,r4
+		li			r2,4095
+		li			r2,4095 shr 8
+		li			r6,1
+GC1:
+		sar			r5,ar0
+		ldw			r0,mar0:r1
+		or			r0,r0:r0
+		jc			r0:zf,Displacement GC2
+		loop		r2,Displacement GC1
+		jnear		Displacement GC4
+; if start entry found
+GC2:
+		add			r0,r4:r5				; pointer +32
+		lar			ar0,r0
+GC3:
+		ldb			r0,mar0:r4
+		or			r0,r0:r0
+		add			r3,r3:r6				; increment count of bytes
+		jc			r0:nzf,Displacement GC3
+		add			r3,r3:r6				; include byte 0A
+		add			r0,r5:r1				; pointer to the next position
+		lar			ar0,r0
+		loop		r2,Displacement GC1
+GC4:
+; output count value to the port
+		li			r0,Offset String1 shl 1
+		li			r0,Offset String1 shr 7
+		sar			r1,ar13
+		copy		r2,r3
+		li			r4,Offset IntToHex shl 1
+		li			r4,Offset IntToHex shr 7
+		call		r4
+		li			r4,Offset OutString shl 1
+		li			r4,Offset OutString shr 7
+		call		r4
+		li			r0,Offset CRString shl 1
+		li			r0,Offset CRString shr 7
+		call		r4
+		or			r3,r3:r3
+		jc			r3:nzf,Displacement GC44
+		jnear		Displacement GCEnd
+; cycle for output filenames
+GC44:
+		amode		r5,1
+		li			r2,4095
+		li			r5,0
+		li			r4,32
+		li			r2,4095 shr 8
+		li			r5,10h
+		size		r5,qword
+		lar			ar0,r5
+		copy		r6,r5
+		li			r3,Offset OutString shl 1
+		li			r3,Offset OutString shr 7
+GC5:
+		ldw			r0,mar0:r5
+		or			r0,r0:r0
+		jc			r0:zf,Displacement GC6
+		add			r6,r6:r5
+		loop		r2,Displacement GC5
+		jnear		Displacement GCEnd
+GC6:
+		add			r0,r6:r4
+		sar			r1,ar1
+		call		r3
+		li			r0,Offset CRString shl 1
+		li			r0,Offset CRString shr 7
+		sar			r1,ar13
+		call		r3
+		add			r6,r6:r5
+		loop		r2,Displacement GC5
+GCEnd:
+popa	ar3
+popa	ar2
+popa	ar1
+popa	ar0
+popd	r13
+popd	r7
+popd	r6
+popd	r5
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret

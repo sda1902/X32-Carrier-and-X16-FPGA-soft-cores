@@ -1,0 +1,122 @@
+;
+;				Search procedure or message entry
+;
+GetEntry:
+		amode			r0,0
+		amode			r1,1
+		amode			r2,2
+		amode			r3,3
+		amode			r4,4
+		li				r6,50h
+		li				r1,SysSelector
+		li				r6,52h
+		li				r2,4
+		li				r6,4Fh
+		li				r15,0
+		li				r6,43h
+		lar				ar1,r1
+		li				r6,45h
+		ldd				r15,mar0:r2					; read DT limit
+		li				r6,53h
+		li				r0,7
+		li				r6,53h
+		li				r1,32
+		lsri			r15:8						; DT entries count
+		li				r2,DTSelector
+		lar				ar0,r0						; pointer to descriptor control byte
+		lar				ar1,r2
+		getpar			r3
+		lar				ar3,r3
+		li				r7,32h
+		li				r8,33h						; mask
+		li				r0,0
+		lar				ar4,r0
+; search object descriptors
+GE1:
+		sar				r5,ar0						; store pointer to DT Entry
+		ldb				r0,mar0:r1					; Descriptor control byte
+		and				r0,r0:r8
+		xor				r0,r0:r7
+		jc				r0:zf,displacement GE2
+		loop			r15,displacement GE1
+		jnear			displacement GENoEntry
+; if object found
+GE2:
+		lsri			r5:5						; object selector 
+		li				r0,0
+		lar				ar5,r5
+		lar				ar4,r0
+		ldq				r0,mar2:r0
+		xor				r0,r0:r6
+		jc				r0:zf,displacement GE3
+		loop			r15,displacement GE1
+		jnear			displacement GENoEntry
+; if process object found then check process name
+GE3:
+		li				r0,8
+		lar				ar2,r0
+		lar				ar4,r0
+GE4:
+		ldb				r0,mar1:r4
+		ldb				r2,mar2:r4
+		or				r3,r0:r2
+		jc				r3:zf,displacement GE5
+		xor				r3,r0:r2
+		jc				r3:zf,displacement GE4
+		loop			r15,displacement GE1
+		jnear			displacement GENoEntry
+; if process found then check his state
+GE5:
+		li				r0,0
+		lar				ar2,r0
+		li				r2,48h					; offset to the PSO selector position
+		ldd				r12,mar2:r2
+		or				r12,r12:r12
+		jcl				r12:zf,displacement GENoEntry
+; if process created then search exported procedure name
+GE6:
+		li				r2,70h
+		li				r11,0
+		ldw				r11,mar2:r2				; read export count
+		or				r11,r11:r11
+		jcl				r11:zf,displacement GENoEntry
+; if export table present
+		li				r9,0
+		size			r9,dword
+		li				r0,80h
+		li				r10,1
+		li				r0,0
+		copy			r4,r0
+		lsri			r0:1					;constant 64 to increment pointer
+GE7:
+		li				r1,48h
+		lar				ar4,r4					;initial offset to export table
+		li				r1,0
+		lar				ar2,r1					;offset to procedure name
+GE8:
+		ldb				r1,mar1:r4
+		ldb				r2,mar2:r4
+		or				r3,r1:r2
+		jcl				r3:zf,displacement GE9
+		xor				r3,r1:r2
+		jc				r3:zf,displacement GE8
+		add				r4,r0:r4				; offset to the next record
+		add				r9,r9:r10				; increment entry number
+		loop			r11,displacement GE7
+		jnear			displacement GENoEntry
+; if entry found
+GE9:
+		size			r12,qword
+		size			r9,qword
+		fieldcopyi		r12,r9:32:32
+		li				r2,0
+		st				mar1:r2,r12
+		endmsg
+;
+;  No entry found
+;
+GENoEntry:
+		li				r2,0
+		size			r2,qword
+		st				mar1:r2,r2
+		endmsg

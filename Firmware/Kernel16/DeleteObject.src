@@ -1,0 +1,83 @@
+DeleteObject:
+pushd	r0
+pushd	r1
+pushd	r2
+pushd	r3
+pushd	r4
+pusha	ar1
+pusha	ar2
+pusha	ar3
+		li			r1,Offset ReadHexParam shl 1
+		li			r1,Offset ReadHexParam shr 7
+		call		r1
+		or			r0,r0:r0
+		jc			r0:zf,Displacement DO1
+		jnear		Displacement DO2
+; if no params entered
+DO1:
+popa	ar3
+popa	ar2
+popa	ar1
+popd	r4
+popd	r3
+popd	r2
+popd	r1
+popd	r0
+ret
+; if selector entered
+DO2:
+		li			r1,-19
+		size		r1,dword
+		add			r1,r1:r0
+		jc			r1:cf,Displacement DO3
+; if selector less than 13
+		jnear		Displacement DO_CheckOwner
+; if object may be deleted
+DO3:
+		li			r1,SysSelector
+		lar			ar3,r1
+		amode		r1,2
+		li			r1,CPSR_Offset
+		ldd			r1,mar1:r1
+		li			r2,Offset SetParentSelector shl 1
+		li			r2,Offset SetParentSelector shr 7
+		call		r2
+		memalloc	r0
+		amode		r0,2
+		li			r0,(Offset CmdStates shl 1)+3
+		li			r0,Offset CmdStates shr 7
+		li			r1,0
+		ldb			r1,mar6:r0						; echo CPU number
+		size		r1,qword
+		lsli		r1:12
+		lsli		r1:12
+		jc			r1:zf,Displacement DO4
+		li			r2,EchoStreamSelector
+		or			r2,r2:r1
+		lar			ar1,r2
+DO4:
+		li			r1,44h
+		li			r0,8
+		st			mar0:r0,r1
+		li			r1,4fh
+		st			mar0:r0,r1
+		li			r1,0dh
+		st			mar0:r0,r1
+		li			r1,0ah
+		st			mar0:r0,r1
+		jnear		Displacement DO1
+; if need to check owner
+DO_CheckOwner:
+		li			r2,DTSelector
+		lar			ar3,r2
+		li			r1,24					; pointer to the parent PSO
+		lar			ar2,r1
+		copy		r3,r0
+		amode		r3,3
+		lsli		r3:5
+		ldd			r2,mar1:r3
+		or			r2,r2:r2
+		jc			r2:zf,Displacement DO_NoDelete
+		jnear		Displacement DO3
+DO_NoDelete:
+		jnear		Displacement DO1
