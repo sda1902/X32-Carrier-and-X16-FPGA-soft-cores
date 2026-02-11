@@ -1,0 +1,154 @@
+iset	microcode
+
+// команды
+instructions Set1 (size=24, position=0)
+	ADDI Rn:Idata,Pos				=00h
+	SUBI Rn:Idata,Pos				=04h
+	ANDI Rn:Idata,Pos				=08h
+	ORI Rn:Idata,Pos				=0Ch
+	XORI Rn:Idata,Pos				=10h
+	LI Rn:Idata,Pos					=14h
+	OUT Port,Rn						=18h
+	IN Rn,Port						=1Ch
+	PUSH Rn							=1018h
+	POP Rn							=101Ch
+	
+	ADD Rn:Rm						=02h
+	SUB Rn:Rm						=06h
+	AND Rn:Rm						=0Ah
+	OR Rn:Rm						=0Eh
+	XOR Rn:Rm						=12h
+	MOV Rn,Rm						=16h
+	ST TSize,BR:Rm:SOffset,Rn		=1Ah
+	LD TSize,Rn,BR:Rm:SOffset		=1Eh
+	
+	JMP FlagDefinition,Addr_Field 	=01h
+	CALL Addr_Field 				=05h
+	RET 							=09h
+	NOP 							=0Dh
+	INT 							=11h
+	CLC 							=15h
+	STC 							=19h
+	CMP Rn:Rm						=1Dh
+	BT Rn:NBit						=1Dh
+	BTR Rn:Rm						=8001Dh
+	
+	LSL Rn							=03h
+	LSR Rn							=07h
+	CSL Rn							=0Bh
+	CSR Rn							=0Fh
+	DSL Rn							=13h
+	OSL Rn							=113h
+	DSR Rn							=17h
+	OSR	Rn							=117h
+	SSL Rn							=1Bh
+	ASR Rn							=1Fh
+Endof Set1
+
+// Регистр Rn
+Field Rn (size=3, position=5)
+	R0	=0
+	R1	=1
+	R2	=2
+	R3	=3
+	R4	=4
+	R5	=5
+	R6	=6
+	R7	=7
+Endof Rn
+
+// Регистр Rm
+Field Rm (size=3, position=10)
+	R0	=0
+	R1	=1
+	R2	=2
+	R3	=3
+	R4	=4
+	R5	=5
+	R6	=6
+	R7	=7
+Endof Rm
+
+// Положение непосредственных данных
+Field IData (size=8, position=10)
+Endof IData
+
+// SOffset field description
+Field SOffset (Size=3, position=15)
+Endof SOffset
+
+// описание портов
+Field Port (size=9, position=10)
+	BR0L	=000000001b
+	BR0H	=000000010b
+	BR1L	=000000100b
+	BR1H	=000001000b
+	P0		=000010000b
+	P1		=000100000b
+	P2		=001000000b
+	P3		=010000000b
+	IRQ		=100000000b
+	P11	    =000010000b
+	P12		=000100000b
+	P13		=000110000b
+	P14		=001000000b
+	P15		=001010000b
+	P16		=001100000b
+	P17		=001110000b
+	p18		=010000000b
+	p19		=010010000b
+	p20		=010100000b
+	p21		=010110000b
+	p22		=011000000b
+	p23		=011010000b
+	p24		=011100000b
+	p25		=011110000b
+	temp0	=000000011b
+	temp1	=000000111b
+Endof Port
+
+// описание позиции непосредственного байта
+Field Pos (size=2, position=8)
+	B0		=0
+	B1		=1
+	B2		=2
+	B3		=3
+Endof Pos
+
+// позиция для установки адреса перехода
+Field Addr_Field (size=12, position=8)
+Endof Addr_Field
+
+// Описание разрядности читаемых или записываемых данных
+Field TSize (size=2, position=13)
+	DB	=0
+	DW	=1
+	DD	=2
+	DQ	=3
+Endof TSize
+
+// описание используемого базового регистра
+Field BR (size=2, position=8)
+	BASE0	=0
+	BASE1	=1
+	BR0		=2
+	BR1		=3
+Endof BR
+
+// описание флагов
+Field FlagDefinition (size=3, position=5)
+	CF	=0
+	ZF	=1
+	SF	=2
+	AGB	=3
+	AEB	=4
+	ALB	=5
+	NZF	=6
+	EF	=7
+Endof FlagDefinition
+
+// позиция для установки номера бита
+Field NBit (size=5, position=13)
+EndOf NBit
+
+endof microcode
