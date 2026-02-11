@@ -1,0 +1,13 @@
+Info: Compiler started. 
+Info: Reading file  D:\Work\CPU\Microcode\SingleThread\Messenger V0\Messenger.src
+Info: Reading file  D:\WORK\CPU\MICROCODE\INSTRUCTION.SRC
+Info: Total loaded lines : 135
+Info: Reading file  D:\WORK\CPU\SOFT\DEFINITIONS.SRC
+Info: Total loaded lines : 50
+Info: Total loaded lines : 600
+Info: Processing constant equations 
+Info: Processing objects 
+Info: Loading instruction references... 
+Info: Processing cross tables 
+Info: Compiling objects... 
+Info: Creating the object binary files. 
