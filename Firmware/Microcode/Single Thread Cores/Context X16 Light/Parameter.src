@@ -1,0 +1,22 @@
+	xor		r0:r0
+	xor		r1:r1
+	li		r0:2,b0
+	out		p13,r0
+	li		r1:ContextStackOffset_PSO_position,b0	; pointer to position of system stack base location
+	in		r0,p1
+	call	offset SetObjectBase
+	ld		dd,r3,br0:r1:0							; system stack base
+	li		r1:ContextStackPointer_PSO_position,b0
+	ld		dd,r2,br0:r1:0							; reading system stack pointer
+	clc
+	add		r3:r2
+	ld		dd,r1,br0:r3:1							; reading parameter from PSO
+	out		p14,r1
+	xor		r1:r1
+	out		p15,r1
+; generate continue signal
+	li		r1:2,b2
+	out		p13,r1
+	nop
+	int
+	

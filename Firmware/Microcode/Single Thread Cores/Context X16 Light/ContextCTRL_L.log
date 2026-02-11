@@ -1,0 +1,25 @@
+Info: Compiler started. 
+Info: Reading file  D:\Work\CPU\Microcode\SingleThread\Context V0 Light\ContextCTRL_L.src
+Info: Reading file  D:\WORK\CPU\MICROCODE\INSTRUCTION.SRC
+Info: Total loaded lines : 135
+Info: Reading file  D:\WORK\CPU\SOFT\DEFINITIONS.SRC
+Info: Total loaded lines : 50
+Info: Reading file  FREEMEMDEF.SRC
+Info: Total loaded lines : 11
+Info: Reading file  MEMALLOC.SRC
+Info: Total loaded lines : 555
+Info: Reading file  PARAMETER.SRC
+Info: Total loaded lines : 20
+Info: Reading file  ENDMSG.SRC
+Info: Total loaded lines : 132
+Info: Reading file  MESSENGER.SRC
+Info: Total loaded lines : 501
+Info: Reading file  PROCTIMER.SRC
+Info: Total loaded lines : 132
+Info: Total loaded lines : 483
+Info: Processing constant equations 
+Info: Processing objects 
+Info: Loading instruction references... 
+Info: Processing cross tables 
+Info: Compiling objects... 
+Info: Creating the object binary files. 

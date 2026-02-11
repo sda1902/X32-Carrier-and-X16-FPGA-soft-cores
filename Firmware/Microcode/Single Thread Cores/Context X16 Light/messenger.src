@@ -1,0 +1,608 @@
+; setting flag for message interface reset
+	li		r0:1,b0
+	out		br1h,r0
+; checking request type (procedure or interrupt)
+	xor		r0:r0
+	out		p13,r0					; select the message port
+	li		r0:0Ch,b3
+	in		r1,p1					; procedure selector and control byte
+	and		r1:r0
+	jmp		zf,offset TransferToInterrupt
+	li		r0:04h,b3
+	xor		r1:r0
+	jmp		nzf,offset MsgRst
+;
+; if prcedure call detected
+;
+	call	offset StopCore
+	call	offset StoreCurrentContext
+	xor		r1:r1
+	li		r1:1,b0
+	out		p13,r1
+	li		r1:2,b0
+	in		r6,p0					; reading message parameter
+	out		p13,r1
+	nop
+	in		r7,p1					; current PSO as a return PSO
+	call	offset CreateContextFrame
+; creating new CSR value for procedure copy TASK ID and CPL and modify ILOCK bits
+	xor		r4:r4
+	out		p13,r4
+	li		r4:1,b0
+	in		r1,p0
+	in		r2,p1					; read control byte and code selector
+	out		p13,r4
+	nop
+	in		r3,p1					; read current CSR
+	stc
+	jmp		cf,offset PrepareAndLoadContext
+	
+; restart interrupt
+RestartInterrupt:
+	xor		r0:r0
+	li		r0:20h,b2
+	out		p13,r0
+	nop
+	int
+;
+; if hardware interrupt detected
+;
+TransferToInterrupt:
+	xor		r0:r0
+	li		r0:StopCoreCommand
+	li		r0:1,b0
+	out		p13,r0
+	xor		r0:r0
+	in		r2,p0					; reading override flag
+	lsl		r2
+	jmp		cf,offset NoTTIWait
+TTIWait:
+	li		r0:6,b1
+	out		p13,r0
+	li		r0:5,b1
+	jmp		ef,offset RestartInterrupt
+	out		p13,r0
+	nop
+	jmp		ef,offset TTIWait
+NoTTIWait:
+	call	offset StoreCurrentContext
+	xor		r1:r1
+	li		r1:1,b0
+	out		p13,r1
+	li		r1:2,b0
+	in		r0,p0					; selector PSO which owned interrupt handler
+	li		r0:0,b3
+	out		p13,r1
+	mov		r4,r0
+	call	offset SetObjectBase
+	xor		r0:r0
+	li		r0:ContextStackOffset_PSO_position,b0
+	ld		dd,r7,br0:r0:0			; reading context stack base
+	li		r0:ContextStackPointer_PSO_position,b0
+	ld		dd,r0,br0:r0:0			; reading stack pointer
+	clc
+	add		r0:r7
+	ld		dd,r7,br0:r0:2			; reading CSR value
+	out		p20,r7					; setting CSR
+	clc
+	addi	r0:58h,b0
+	addi	r0:02h,b1				; R0 - top of the context stack
+	in		r7,p1					; current PSO as return PSO
+	out		p19,r4					; setting CPSR register
+	mov		r6,r7					; message parameter
+	call 	offset CreateContextFrame
+; creating new CSR value, program pointer and stack pointer
+	xor		r7:r7
+	out		p13,r7
+	li		r7:1,b0
+	in		r1,p0					; reading offset
+	in		r2,p1					; reading selector and control byte
+	out		p13,r7
+	nop
+	in		r3,p1					; reading current CSR
+; R0 - pointer to context image (CSR value)
+; R1 - code offset
+; R2 - code selector and control byte
+; R3 - CSR value
+PrepareAndLoadContext:
+	call	offset PrepareContext
+	call	offset LoadContextShort
+; checking messenger reset
+	in		r0,br1h
+	or		r0:r0
+	jmp		zf,offset WaitState
+; if we need to reset request in the messenger
+MsgRst:
+	xor		r0:r0
+	li		r0:40h,b1
+	out		p13,r0
+	nop
+	int
+
+;
+; if parameters not specified then try to check the message queues
+;
+MsgrQueueCheck:
+	xor		r0:r0
+	out		br1h,r0
+	li		r0:2,b0
+	out		p13,r0
+	nop
+	in		r0,p1				; reading current PSO selector
+	or		r0:r0
+	jmp		zf,offset WaitState
+	in		r1,p0				; reading DTLIMIT
+	li		r1:0,b3
+	cmp		r0:r1
+	jmp		agb,offset WaitState
+	jmp		aeb,offset WaitState
+; if selector PSO has a legal value
+	call	offset SetObjectBase
+	xor		r0:r0
+	xor		r1:r1
+	xor		r2:r2
+	li		r0:SystemQueuePointers_PSO_position,b0
+	ld		dw,r1,br0:r0:0
+	clc
+	addi	r0:2,b0
+	ld		dw,r2,br0:r0:0
+	cmp		r1:r2
+	jmp		aeb,offset MQC1
+; if system queue not empty
+	stc
+	jmp		cf,offset MQC2
+; check regular queue
+MQC1:
+	li		r0:RegularQueuePointers_PSO_position,b0
+	ld		dw,r1,br0:r0:0
+	clc
+	addi	r0:2,b0
+	ld		dw,r2,br0:r0:0
+	cmp		r1:r2
+	jmp		aeb,offset WaitState
+; if regular or system queue not empty
+MQC2:
+	out		br1l,r0
+	call	offset StopCore
+	call	offset StoreCurrentContext
+SwitchToMessage:
+	in		r0,br1l
+	clc
+	subi	r0:10,b0						; pointer to queue offset position
+	ld		dd,r4,br0:r0:0					; read queue offset
+	xor		r5:r5
+	xor		r6:r6
+	ld		dw,r5,br0:r0:1					; limit of queue
+	ld		dw,r6,br0:r0:2					; read pointer
+	mov		r7,r6
+	dsl		r7
+	dsl		r7
+	clc
+	add		r7:r4							; pointer to message
+	out		br1l,r7
+; setting new value of read pointer into PSO
+	clc
+	addi	r6:1,b0
+	cmp		r6:r5
+	jmp		alb,offset MQC3
+; if we need to reset the read pointer
+	xor		r6:r6
+MQC3:
+	st		dw,br0:r0:2,r6					; write new value of read pointer
+; setting pointer to current context
+	xor		r4:r4
+	li		r4:ContextStackOffset_PSO_position,b0
+	ld		dd,r0,br0:r4:0					; reading context stack offset
+	ld		dd,r1,br0:r4:2					; reading context stack pointer
+	clc
+	addi	r0:58h,b0
+	addi	r0:02h,b1
+	add		r0:r1
+	ld		dd,r6,br0:r7:2					; message parameter
+	xor		r7:r7
+	li		r7:2,b0
+	out		p13,r7
+	nop
+	in		r7,p1							; reading current CSR as return PSO
+	call	offset CreateContextFrame
+	in		r7,br1l
+	ld		dd,r1,br0:r7:0					; reading procedure offset
+	ld		dd,r2,br0:r7:1					; reading control byte and code selector
+	ld		dd,r3,br0:r7:3					; CSR value
+	stc
+	jmp		cf,offset PrepareAndLoadContext
+
+;--------------------------------------------------------------------------------------------------
+; error or breakpoint
+;
+ErrorBkptRequest:
+	xor		r0:r0
+	li		r0:4,b2							; set flag BKPT
+	out		p13,r0
+	xor		r1:r1
+	jmp		ef,offset BKPTType
+	li		r1:1,b0
+	jmp		nzf,offset HWIProcessing
+; if breakpoint detected
+BKPTType:
+	xor		r0:r0
+	li		r0:80h,b2
+	out		p13,r0							; reset breakpoint flag in the context controller
+	li		r1:2,b0
+	li		r1:80h,b3
+	jmp		nzf,offset HWIProcessing
+	
+;--------------------------------------------------------------------------------------------------
+; external interrupt
+;
+InterruptRequest:
+	xor		r0:r0
+	li		r0:7,b0
+	out		p13,r0
+	nop
+	in		r1,p1
+;
+; common code of interrupt processing
+;	R1 - interrupt index
+;
+HWIProcessing:
+	or		r1:r1
+	jmp		nzf,offset HWIP1
+HWIPRestart:
+	xor		r4:r4
+	li		r4:8,b0
+	out		p13,r4
+	nop
+	int
+; check table selector
+HWIP1:
+	xor		r5:r5
+	li		r5:80h,b3
+	and		r5:r1
+	li		r1:0,b3
+	xor		r2:r2
+	li		r2:9,b2
+	out		p13,r2							; generate CoreSTOP and select INTSR and INTCR
+	xor		r3:r3
+	in		r2,p1							; reading length of interrupt table
+	in		r0,p0							; reading table selector
+	or		r0:r0
+	jmp		zf,offset HardwareReset
+	li		r3:2,b0
+	cmp		r2:r3
+	jmp		alb,offset HardwareReset
+	clc
+	subi	r2:1,b0
+; check interrupt index
+	cmp		r1:r2
+	jmp 	agb,offset IntrError_32
+	call 	offset SetObjectBase
+	mov		r0,r1							; copy of interrupt index
+	dsl		r0
+	lsl		r0
+; reading target PSO selector and procedure index
+	ld		dd,r2,br0:r0:0					; PSO selector
+	ld		dd,r3,br0:r0:1					; procedure index
+	xor		r0:r0
+	li		r0:2,b0
+	out		p13,r0
+	li		r2:0,b3
+	in		r0,p0							; read the DT limit
+	li		r0:0,b3
+	cmp		r2:r0
+	jmp		alb,offset HWIP2
+; if PSO selector large or equal to DT length
+HWI_CheckError:
+	xor		r0:r0
+	li		r0:1,b0
+	xor		r0:r1							; checking interrupt index
+	jmp		zf,offset HardwareReset
+	jmp		nzf,offset IntrError_33
+; if DT limit not exceeded
+HWIP2:
+	mov		r0,r2
+	or		r5:r2
+	call	offset SetObjectBase			; setting base address of PSO
+	ld		dd,r2,base0:r0:1
+	li		r2:0,b0
+	li		r2:0,b1
+	li		r2:0,b2
+	andi	r2:33h,b3
+	xori	r2:32h,b3
+	jmp		nzf,offset HWI_CheckError
+	xor		r0:r0
+	li		r0:ExportTableCount_PSO_position,b0
+	xor		r2:r2
+	ld		dw,r2,br0:r0:0					; read table count
+	cmp		r3:r2
+	jmp		agb,offset HWI_CheckError
+	jmp		aeb,offset HWI_CheckError
+; if export index not exceed export table
+	li		r0:ExportTableOffset_PSO_position,b0
+	ld		dd,r0,br0:r0:0					; export table base in R0
+	dsl		r3
+	lsl		r3
+	add		r0:r3							; offset to position of procedure descriptor
+; read control byte 
+	ld		dd,r2,br0:r0:0					; procedure offset
+	ld		dd,r3,br0:r0:1					; procedure selector and control byte
+; checing entry type
+	xor		r4:r4
+	li		r4:0Ch,b3
+	and		r4:r3
+	jmp		zf,offset HWIP3
+; if entry is no interrupt
+	xor		r4:r4
+	li		r4:1,b0
+	xor		r4:r1
+	jmp		zf,offset HardwareReset
+	jmp		nzf,offset IntrError_34
+; if entry is interrupt then set request to the context controller
+HWIP3:
+; procedure offset setting into context controller message port
+	out		p22,r2
+; writing procedure selector and control byte from R3
+	out		p22,r3
+; writing selector PSO
+	out		p22,r5
+	stc
+	jmp		cf,offset MessengerRequest
+
+; error generation
+IntrError_32:
+	li		r0:32h,b3
+	jmp		nzf,offset EndMsgError
+IntrError_33:
+	li		r0:33h,b3
+	jmp		nzf,offset EndMsgError
+IntrError_34:
+	li		r0:34h,b3
+	jmp		nzf,offset EndMsgError
+Error_02:
+	li		r0:02h,b3
+	jmp		nzf,offset EndMsgError
+Error_0A:
+	li		r0:0Ah,b3
+	jmp		nzf,offset EndMsgError
+Error_12:
+	li		r0:12h,b3
+	jmp		nzf,offset EndMsgError
+Error_1A:
+	li		r0:1Ah,b3
+	jmp		nzf,offset EndMsgError
+Error_22:
+	li		r0:22h,b3
+	jmp		nzf,offset EndMsgError
+Error_2A:
+	li		r0:2Ah,b3
+	jmp		nzf,offset EndMsgError
+	
+;
+;--------------------------------------------------------------------------------------------------
+; Message request from EU
+;
+MsgRequest:
+	xor		r0:r0
+	li		r0:2,b0
+	out		p13,r0
+	nop
+	in 		r0,p1							; reading PSO selector
+	li		r0:0,b3
+	call 	Offset SetObjectBase			; setting base address of current PSO in BR0
+
+	xor		r0:r0
+	li		r0:6,b0
+	out		p13,r0
+	nop
+	in		r0,p0							; getting message index from EU parameters
+
+	xor		r1:r1
+	li		r1:ImportTableCount_PSO_position,b0
+	ld		dw,r1,BR0:r1:0
+	cmp		r0:r1
+	jmp		agb,Offset Error_02
+	jmp		aeb,Offset Error_02
+; if import index have a valid value
+	xor 	r1:r1
+	li		r1:ImportTableOffset_PSO_position,b0
+	ld		dd,r1,br0:r1:0					; loading offset of the import table
+	dsl		r0
+	lsl		r0
+	add 	r1:r0							; forming offset to imported procedure
+	ld		dd,r0,br0:r1:0					; in the R0 PSO target selector
+	out		br1l,r0							; storing target PSO selector in the BR1
+	ld		dd,r1,br0:r1:1					; in the R1 index of export procedure table
+
+	li		r0:0,b3							; selecting only selector value 
+	or		r0:r0
+	jmp		zf,offset Error_0A				; if PSO selector zero
+	li		r2:0,b3
+	cmp		r0:r2
+	jmp 	agb,offset Error_0A
+	jmp		aeb,offset Error_0A
+	call offset SetObjectBase				; loading to BR0  base address of PSO
+	xor		r4:r4
+	li		r4:ExportTableCount_PSO_position,b0				; offset to the export table limit
+	xor		r5:r5
+	ld		dw,r5,br0:r4:0					; reading exoptr table limit to the r5
+	cmp		r1:r5
+	jmp		agb,Offset Error_12
+	jmp		aeb,offset Error_12
+; if message index OK
+	dsl		r1
+	lsl		r1
+	li		r4:ExportTableOffset_PSO_position,b0
+	ld		dd,r5,br0:r4:0
+	add		r5:r1							; R5 holds offset to the entry point in export table
+	ld		dd,r7,br0:r5:1					; reading control byte and selector
+; now we need to determine relations between CPL and PL of the message
+	mov		r6,r7
+	xor		r4:r4
+	li		r4:3,b3
+	and		r6:r4							; message descriptor PL
+	xor		r3:r3
+	li		r3:1,b0
+	out		p13,r3
+	nop
+	in		r3,p1
+	osl		r3
+	dsr		r3
+	and		r3:r4
+	cmp		r3:r6
+	jmp		agb,Offset Error_1A
+; checking procedure type descriptor
+	xor		r0:r0
+	li		r0:0Ch,b3
+	mov		r6,r7
+	and		r6:r0
+	li		r0:4,b3
+	cmp		r0:r6
+	jmp		aeb,offset ProcedureCall
+; checking incorrect ussage of interrupt handler
+	or		r6:r6
+	jmp		zf,offset Error_22
+; checking message type and select an appropriate queue pointer
+; if PL and type is OK try to place message in the queue
+	xor		r0:r0
+	xor		r4:r4
+	li		r0:SystemQueueOffset_PSO_position,b0
+	li		r4:4,b3
+	mov     r6,r7
+	and		r6:r4						; selecting bit "emergency"
+	jmp		zf,Offset SetMessageToQueue
+; if regular message selected
+	li		r0:RegularQueueOffset_PSO_position,b0
+;
+; Trying to set message into queue R0 - pointer to the queue structure in PSO
+;
+SetMessageToQueue:
+	ld		dd,r1,br0:r0:0					; reading message queue offset
+	ld		dw,r2,br0:r0:1					; reading messages max count
+; checking pointer for queue overflow
+	ld		dd,r3,br0:r0:2					; reading read pointer and write pointer
+	li		r2:0,b2
+	li		r2:0,b3
+	mov		r4,r3
+	osr		r4
+	osr		r4
+	li		r3:0,b2
+	li		r3:0,b3
+	clc
+	addi	r0:10,b0							; R0 - pointer to WRPTR position
+; now we have a r3-rdptr and r4-wrptr, r2-maxcount r0-pointer to the wrptr position
+	cmp 	r4:r3
+	jmp		aeb,Offset QueueReadyToWrite	; if queue empty
+	or		r3:r3
+	jmp		nzf,offset TestPtrContinue
+; if read pointer is zero
+	mov		r3,r2
+TestPtrContinue:
+	clc
+	subi	r3:1,b0
+	cmp		r4:r3
+	jmp		aeb,offset Error_2A
+;
+; if queue able to add new message
+;
+QueueReadyToWrite:
+	mov		r6,r4
+	dsl		r6
+	dsl		r6
+	add		r1:r6					; R1 - offset to write position in the message queue
+; reading procedure offset from export table and writing it to the queue
+	ld		dd,r6,br0:r5:0
+	st		dd,br0:r1:0,r6
+; writing procedure selector and control byte from R7
+	st		dd,br0:r1:1,r7
+; writing message parameter
+	xor		r6:r6
+	li		r6:6,b0
+	out		p0,r6
+	xor		r6:r6
+	in		r6,p1					; reading parameter from register
+	st		dd,br0:r1:2,r6
+; writing current CSR
+	xor		r6:r6
+	li		r6:1,b0
+	out		p13,r6
+	nop
+	in		r6,p1					; reading CSR value
+	st		dd,br0:r1:3,r6
+; updating write pointer in PSO
+	addi	r4:1,b0
+	cmp		r2:r4
+	jmp		agb,offset ModifyWPTR
+; if write PTR must be set to 0
+	xor		r4:r4
+ModifyWPTR:
+	st		dw,br0:r0:0,r4
+;
+;	verify values of current PSO and target PSO
+;
+	xor		r4:r4
+	li		r4:2,b0
+	out		p13,r4
+	in		r5,br1l					; reading target PSO selector
+	in		r4,p1					; reading current PSO selector
+	xor		r4:r5
+	jmp		zf,offset CheckBreakCurrentProcess
+;
+; if target PSO is not equal to current PSO continue execution of current process
+;
+ContinueExecution:
+	xor		r4:r4
+	li		r4:40h,b1
+	out		p13,r4
+	nop
+	int
+;
+; if target PSO is a current PSO
+; checking core state
+;
+CheckBreakCurrentProcess:
+	xor		r4:r4
+	li		r4:1,b0
+	out		p13,r4
+	nop
+	in		r4,p1
+	li		r4:0,b0
+	li		r4:0,b1
+	li		r4:0,b2
+	andi	r4:7,b3
+	jmp		zf,offset MessengerRequest
+	xori	r4:5,b3
+	jmp		nzf,offset ContinueExecution
+; checking type of message
+	li		r7:0,b0
+	li		r7:0,b1
+	li		r7:0,b2
+	andi	r7:0Ch,b3
+	xori	r7:08h,b3
+	jmp		nzf,offset ContinueExecution
+	jmp		zf,offset MessengerRequest
+; if we need to send request to the context controller
+; setting message to zero (for queues checking)
+Send_QC_RequestTo_CC:
+	xor		r0:r0
+	li		r0:10h,b1
+	out		p0,r0
+	nop
+	int
+;
+; Procedure call processing
+;
+ProcedureCall:
+	xor 	r0:r0
+	li		r0:6,b0				; prepare to read procedure parameter
+	out		p13,r0
+	nop
+	in		r1,p1				; read parameter
+; reading procedure offset from export table and setting it into context controller message port
+	ld		dd,r6,br0:r5:0
+	out		p22,r6
+; writing procedure selector and control byte from R7
+	out		p22,r7
+; writing message parameter
+	out		p22,r1
+	stc
+	jmp		cf,offset MessengerRequest

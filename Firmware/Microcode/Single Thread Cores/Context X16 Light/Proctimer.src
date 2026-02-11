@@ -1,0 +1,152 @@
+;	checking PLR state
+	xor		r0:r0
+	out		br1h,r0
+	li		r0:PLR_offset,b0
+	ld		dd,r1,base1:r0:0
+	xori	r1:80h,b3
+	bt		r1:31
+	jmp		cf,offset WaitState
+; if process switching enabled
+	or		r1:r1
+	jmp		zf,offset WaitState
+; if APS enabled and selector present, then try to check process table selector
+	li		r0:2,b0
+	out		p13,r0
+	nop
+	in		r2,p0
+	li		r2:0,b3
+	cmp		r2:r1
+	jmp		agb,offset PTimer1
+	nop
+	int
+; if selector less than DT Limit then go to check table limit and pointer
+PTimer1:
+	li		r0:PLR_offset,b0
+	ld		dd,r2,base1:r0:1
+	mov		r3,r2
+	li		r2:0,b2
+	li		r2:0,b3
+	li		r3:0,b0
+	li		r3:0,b1
+	or		r3:r3
+	jmp		zf,offset WaitState
+; if table not empty then check busy state of EU or messenger
+	xor		r0:r0
+	li		r0:6,b1
+	out		p13,r0
+	nop
+	jmp		ef,offset WaitState				;ResetTIntr
+	li		r0:5,b1
+	out		p13,r0
+	nop
+	jmp		ef,offset WaitState				;ResetTIntr
+	call	offset StoreCurrentContext
+; reading PSO selector from table
+	xor		r1:r1
+	li		r1:PLR_offset,b0
+	ld		dd,r0,base1:r1:0				; read table offset
+	li		r0:0,b3
+	call	offset SetObjectBase
+	xor		r0:r0
+	ld		dw,r0,base1:r1:1				; read table pointer
+	dsl		r0
+	ld		dd,r0,br0:r0:0					; read PSO selector from table
+	or		r0:r0
+	jmp		zf,offset PTimerRestartCurrent
+; checking selector and DT Limit
+	li		r1:2,b0
+	out		p13,r1
+	nop
+	in		r1,p0
+	li		r1:0,b3
+	cmp		r0:r1
+	jmp		alb,offset PTimer2
+; if wrong PSO selector, we retry current process execution 
+PTimerRestartCurrent:
+	xor		r0:r0
+	li		r0:PTR_offset,b0
+	ld		dw,r1,base1:r0:0
+	st		dw,base1:r0:0,r1
+; restart core
+	xor		r0:r0
+	li		r0:8,b0
+	out		p13,r0
+	nop
+	int
+; reset interrupt, if EU or messenger busy
+ResetTIntr:
+	xor		r0:r0
+	li		r0:40h,b2
+	out		p13,r0
+	nop
+	int
+	
+; if PSO selector valid setting his base into BR0 and loading to the core
+PTimer2:
+	out		p19,r0						; store PSO selector value
+	call	offset SetObjectBase
+	xor		r7:r7
+	ld		dw,r0,br0:r7:0				; read process timer base
+	li		r7:PTR_offset,b0
+	st		dw,base1:r7:0,r0			; setting value into counter
+; setting CSR from new task
+	li		r7:ContextStackOffset_PSO_position,b0
+	ld		dd,r0,br0:r7:0				; stack context base
+	ld		dd,r1,br0:r7:2				; pointer
+	clc
+	add		r0:r1
+	ld		dd,r1,br0:r0:2				; reading CSR
+	out		p20,r1
+; check state, can we process messages
+	li		r1:0,b0
+	li		r1:0,b1
+	mov		r2,r1
+	li		r2:0,b3
+	andi	r2:80h,b2
+	jmp		zf,offset PTimer5
+; if messages not locked
+	mov		r3,r1
+	li		r3:0,b2
+; check system and regular message queues
+	xor		r0:r0
+	xor		r1:r1
+	xor		r2:r2
+	li		r0:SystemQueuePointers_PSO_position,b0
+	ld		dw,r1,br0:r0:0
+	clc
+	addi	r0:2,b0
+	ld		dw,r2,br0:r0:0
+	cmp		r1:r2
+	jmp		aeb,offset PTimer3
+; if system queue not empty
+	stc
+	jmp		cf,offset PTimer4
+; check regular queue
+PTimer3:
+	andi	r3:6,b3
+	jmp		nzf,offset PTimer5
+	li		r0:RegularQueuePointers_PSO_position,b0
+	ld		dw,r1,br0:r0:0
+	clc
+	addi	r0:2,b0
+	ld		dw,r2,br0:r0:0
+	cmp		r1:r2
+	jmp		aeb,offset PTimer5
+; if regular or system queue not empty
+PTimer4:
+	out		br1l,r0
+	stc
+	jmp		cf,offset SwitchToMessage
+; if all queues are empty or messages disabled, try to check process state
+PTimer5:
+	xor		r7:r7
+	li		r7:ContextStackOffset_PSO_position,b0
+	ld		dd,r0,br0:r7:0				; context stack base
+	li		r7:ContextStackPointer_PSO_position,b0
+	ld		dd,r1,br0:r7:0				; context stack pointer
+	clc
+	addi	r0:8,b0
+	add		r0:r1
+	call	offset LoadContext
+	nop
+	int
