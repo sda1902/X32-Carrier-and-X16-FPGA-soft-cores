@@ -1,0 +1,672 @@
+;
+;=================================================================================================
+;		Memory allocation request processing
+;=================================================================================================
+; reading PSO selector and setting pointer to PSO in BR1
+		xor		r0:r0
+		li		r0:2,b0
+		out		p13,r0
+		xor		r0:r0
+		in		r3,p1
+		ssl 	r3							; calculate offset from selector
+		ld		dd,r2,base0:r3:0
+		out		br1l,r2
+		ld		db,r2,base0:r3:1
+		out		br1h,r2
+		li		r0:6,b0
+		out		p13,r0
+; reading selector from parameters
+		nop
+		in		r0,p0
+		mov		r2,r0
+		mov		r6,r0
+; allocation new object or resize/delete already presented
+		li		r0:0,b3
+		or		r0:r0
+		jmp		zf,Offset MAR_GetNewObject
+;-----------------------------------------------
+; if object must be deleted
+;-----------------------------------------------
+MAR_DeleteObject:
+		xor 	r1:r1
+		li		r1:2,b0
+		out		p13,r1
+		nop
+		in		r5,p0						; DTLimit and CPU number
+		xor		r2:r5
+		li		r2:0,b0
+		li		r2:0,b1
+		li		r2:0,b2
+		or		r2:r2
+		jmp		zf,offset MDO0				; jump if object in current CPU
+		xor		r2:r5
+		li		r2:0,b0
+		li		r2:0,b1
+		li		r2:0,b2
+		or		r2:r2
+		jmp		zf,offset MDO0
+NoDelete:
+		xor		r1:r1
+		out		p14,r6
+		out		p15,r1
+		li		r1:2,b2
+		out		p13,r1
+		nop
+		int
+; if object may be deleted
+MDO0:
+		mov		r7,r0						; copy of start
+; checking selector
+		xor		r2:r2
+		li		r5:0,b3
+		cmp		r0:r5
+		jmp		agb,Offset NoDelete
+; checking object type
+		ssl		r0
+		ld		dd,r1,base0:r0:1
+		mov		r3,r1						; copy CTRL for CPL analysis
+		li		r2:2,b3
+		and		r1:r2
+		jmp		zf,Offset NoDelete
+; if object data type checking CPL
+		xor		r1:r1
+		li		r1:1,b0
+		out		p13,r1
+		li		r2:0Ch,b3
+		and		r3:r2
+		li		r3:0,b0
+		li		r3:0,b1
+		li		r3:0,b2
+		in		r1,p1
+		ssl		r1
+		lsl		r1
+		dsl		r1
+		and		r1:r2
+		li		r1:0,b0
+		li		r1:0,b1
+		li		r1:0,b2
+		cmp		r1:r3
+		jmp		agb,Offset NoDelete
+; if delete procedure allowed
+; increment object count in parrent PSO
+		ld		dd,r4,base0:r0:6
+		cmp		r4:r5
+		jmp		agb,offset LowDelCycle
+		jmp		aeb,offset LowDelCycle
+		ssl		r4
+		ld		dd,r3,base0:r4:0
+		out		br0l,r3
+		ld		db,r3,base0:r4:1
+		out		br0h,r3
+		xor		r3:r3
+		li		r3:CurrentObjCountPSOLocation,b0
+		ld		dd,r4,br0:r3:0
+		clc
+		addi	r4:1,b0
+		st		dd,br0:r3:0,r4
+; Delete cycle for lower chain of segments
+LowDelCycle:
+		ld		dd,r1,base0:r0:2			; lower link selector
+		or		r1:r1
+		jmp		zf,Offset LDCEnd
+; starting search free position in FreeMem
+		xor		r2:r2
+		li		r2:FreeMemGetFreeLengthEntryCommand,b0
+		out		p13,r2
+; if lower link selector present then delete object refered by lower link selector
+		xor		r2:r2
+		st		dd,base0:r0:2,r2			; setting LLS to 0
+		out		p17,r1
+		li		r1:0,b3
+		mov		r0,r1
+		ssl		r0
+; delete object
+		st		dd,base0:r0:3,r2			; upper link selector
+		ld		dd,r4,base0:r0:6			; parrent selector
+		st		dd,base0:r0:6,r2			; parent selector
+		st		dd,base0:r0:7,r2			; config selector
+		ld		dd,r2,base0:r0:5			; reading upper limit
+		ld		dd,r1,base0:r0:4			; lower limit
+		clc
+		sub		r2:r1
+		st		dd,base0:r0:5,r2			; length of object
+		xor		r3:r3
+		st		dd,base0:r0:4,r3			; lower limit set to zero
+		ld		dd,r3,base0:r0:1			; upper byte of base address and type
+		li		r3:0,b1
+		li		r3:0,b2
+		li		r3:1,b3
+		st		dd,base0:r0:1,r3
+; adding length to total free length
+		out		p16,r2
+		xor		r3:r3
+		li		r3:20h,b1
+		out		p13,r3
+; adding length of segment to parrent PSO 
+		cmp		r4:r5
+		jmp		agb,offset LDC0
+		jmp		aeb,offset LDC0
+		ssl		r4
+		ld		dd,r3,base0:r4:0
+		out		br0l,r3
+		ld		db,r3,base0:r4:1
+		out		br0h,r3
+		xor		r3:r3
+		li		r3:RemainedMemPSOLocation,b0
+		ld		dd,r4,br0:r3:0
+		clc
+		add		r4:r2
+		st		dd,br0:r3:0,r4
+; checking free entry in free ram
+LDC0:
+		jmp		ef,Offset LDC0
+		xor		r3:r3
+		li		r3:1,b1
+		out		p13,r3
+		nop
+		jmp		ef,Offset LDC1
+		stc
+		jmp		cf,Offset LowDelCycle
+; if free position found
+LDC1:
+		xor		r3:r3
+		li		r3:FreeMemWriteCommand,b0
+		out		p13,r3
+		stc
+		jmp		cf,Offset LowDelCycle
+;-----------------------------------------------
+;		trying to delete upper chain
+;		r7 - OFFSET to first descriptor in upper chain
+;-----------------------------------------------
+LDCEnd:
+		mov		r0,r7
+		or		r0:r0
+		jmp		zf,Offset EndDelete
+		out		p17,r0
+		ssl		r0
+; starting search for free entry
+		xor		r1:r1
+		li		r1:FreeMemGetFreeLengthEntryCommand,b0
+		out		p13,r1
+; reading upper link selector
+		ld		dd,r7,base0:r0:3
+; deleting segment
+		xor		r2:r2
+		st		dd,base0:r0:2,r2			; lower link selector
+		st		dd,base0:r0:3,r2			; upper link selector
+		ld		dd,r1,base0:r0:4			; lower limit
+		st		dd,base0:r0:4,r2
+		ld		dd,r2,base0:r0:5			; reading upper limit
+		clc
+		sub		r2:r1
+		st		dd,base0:r0:5,r2			; length of object
+		ld		dd,r3,base0:r0:1			; upper byte of base address and type
+		li		r3:0,b1
+		li		r3:0,b2
+		li		r3:1,b3
+		st		dd,base0:r0:1,r3
+; adding length to total free length
+		out		p16,r2
+		xor		r3:r3
+		li		r3:20h,b1
+		out		p13,r3
+; adding length to the parrent PSO
+		ld		dd,r4,base0:r0:6
+		cmp		r4:r5
+		jmp		agb,offset LDC4
+		jmp		aeb,offset LDC4
+		ssl		r4
+		ld		dd,r3,base0:r4:0
+		out		br0l,r3
+		ld		db,r3,base0:r4:1
+		out		br0h,r3
+		xor		r3:r3
+		li		r3:RemainedMemPSOLocation,b0
+		ld		dd,r4,br0:r3:0
+		clc
+		add		r4:r2
+		st		dd,br0:r3:0,r4		
+LDC4:
+		xor		r2:r2
+		st		dd,base0:r0:6,r2			; parent selector
+		st		dd,base0:r0:7,r2			; config selector
+
+; checking free position
+LDC2:
+		jmp		ef,Offset LDC2				; if engine still working 
+		li		r2:1,b1
+		out		p13,r2
+		nop
+		jmp		ef,Offset LDC3
+; if no free entry in freeram
+		stc
+		jmp		cf,Offset LDCEnd
+; if free entry found
+LDC3:
+		xor		r2:r2
+		li		r2:FreeMemWriteCommand,b0
+		out		p13,r2
+		stc
+		jmp		cf,Offset LDCEnd
+;-----------------------------------------------
+;		End of delete procedure
+;-----------------------------------------------
+EndDelete:
+; recalculate free space
+		xor		r0:r0
+		li		r0:FreeMemCalcFreeCommand,b0
+		out		p13,r0
+		xor		r1:r1
+		out		p14,r1
+		out		p15,r1
+		li		r1:2,b2
+		out		p13,r1
+		nop
+		int
+		
+;-----------------------------------------------
+; Create new object
+;-----------------------------------------------
+MAR_GetNewObject:
+		in		r0,p1					; reading length parameter
+; checking requested length and maximum accessible
+		xor		r1:r1
+		li		r1:5,b0
+		out		p13,r1
+		nop
+		in		r1,p1
+		or		r1:r1
+		jmp     nzf,Offset MAP_GNO1
+; checking lower 32 bits
+		in		r1,p0
+		cmp		r0:r1
+		jmp		alb,Offset MAP_GNO1
+; if not enougth memory
+MAR_NoMemory:
+		xor		r1:r1
+		out		p14,r1
+		out		p15,r1
+		li		r1:2,b2
+		out		p13,r1
+		stc
+		jmp		cf,Offset WaitState
+; if memory block can be allocated, checking PSO parameters
+; PSO addressed by BR1
+MAP_GNO1:
+		xor		r1:r1
+		li		r1:CurrentObjCountPSOLocation,b0
+		ld		dd,r3,br1:r1:0
+		or		r3:r3
+		jmp		zf,Offset MAR_NoMemory
+; if object count allow to realloc new object cheking remained memory for process
+MAR_ObjectAllowed:
+		li		r1:RemainedMemPSOLocation,b0
+		ld		dd,r2,br1:r1:0
+		cmp		r0:r2
+		jmp		agb,Offset MAR_NoMemory
+		jmp		aeb,Offset MAR_NoMemory
+; decrement object counter and allowed memory space
+		clc
+		sub		r2:r0
+		st		dd,br1:r1:0,r2
+		li		r1:CurrentObjCountPSOLocation,b0
+		ld		dd,r2,br1:r1:0
+		clc
+		subi	r2:1,b0
+		st		dd,br1:r1:0,r2
+;-----------------------------------------------
+; if all checks passed preparing to allocate memory object
+; R0 - total required length
+;-----------------------------------------------
+		mov		r1,r0						; copy length parameter
+		xor		r2:r2						; lower link selector =0 
+		xor		r7:r7						; selector of object
+		xor		r0:r0						; segment offset
+;-----------------------------------------------
+;	Allocation cycle
+;-----------------------------------------------
+MAR_AllocCycle:
+		mov		r3,r1						; rest of size to be allocated
+; trying to allocate block with size R3
+MAR_AC1:
+		out		p16,r3
+		xor		r4:r4
+		li		r4:FreeMemSearchCommand,b0
+		out		p13,r4
+		xor		r4:r4
+MAR_AC2:
+		jmp		ef,Offset MAR_AC2
+; checking object found flag
+		li		r4:FreeObjectFoundFlagIndex,b1
+		out		p13,r4
+		nop
+		jmp		ef,Offset MAR_Found
+; if object with size R3 not found, decrease R3 by right shift
+		lsr		r3
+		or		r3:r3
+		jmp		nzf,Offset MAR_AC1
+; if R3 is zero and no objects found we return zero 
+		jmp		zf,Offset MAR_NoMemory
+; if object found checking length in R1 and R3
+MAR_Found:
+		cmp		r1:r3
+		jmp		aeb,Offset MAR_LastSegment
+; if R3 not equal to R1 reading size of object which found
+; processing segment of the object
+		in		r3,p2						; actual length of object
+		in		r4,p3						; selector
+		ssl		r4
+; setting type of object
+		xor		r6:r6
+		li		r6:1,b0
+		out		p13,r6						; select CCR
+		ld		dd,r5,base0:r4:1
+		li		r5:0,b1
+		li		r5:0,b2
+		li		r5:0,b3
+		in		r6,p1						; reading CCR
+		ssl		r6
+		lsl		r6
+		dsl		r6
+		andi	r6:0Ch,b3
+		or		r5:r6
+		xor		r6:r6
+		li		r6:6,b0
+		out		p13,r6
+		ori		r5:32h,b3
+		in		r6,p0						; reading flags
+		li		r6:0,b0
+		li		r6:0,b1
+		li		r6:0,b2
+		andi	r6:0F0h,b3
+		xor		r5:r6
+		st		dd,base0:r4:1,r5			; second word of base
+; lower link selector
+		st		dd,base0:r4:2,r2
+		or		r7:r7
+		jmp		nzf,Offset MAR_AC4
+; if this is a first segment of chain
+		in		r7,p3						; object selector
+		xor		r5:r5
+		st		dd,base0:r4:4,r5			; lower limit
+		st		dd,base0:r4:5,r3			; setting the upper limit
+		out		p16,r3
+		clc
+		addi	r3:1,b0
+		mov		r0,r3
+MAR_AC5:
+		sub		r1:r3						; correction rest of length
+		xor		r3:r3
+		li		r3:2,b0
+		out		p13,r3
+		nop
+		in		r3,p1						; reading current PSO selector
+		li		r3:0,b3
+		st		dd,base0:r4:6,r3			; owner
+; setting new lower link selector
+		in		r2,p3
+; decrement free mem counter
+		xor		r3:r3
+		li		r3:30h,b1
+		out		p13,r3
+; clearing position in the cache
+		xor		r3:r3
+		out		p16,r3
+		out		p17,r3
+		li		r3:FreeMemWriteCommand,b0
+		out		p13,r3
+		stc
+		jmp		cf,Offset MAR_AllocCycle
+;
+; if object inside chain
+;
+MAR_AC4:
+		clc
+		addi	r3:1,b0
+		st		dd,base0:r4:4,r0			; lower limit
+		ld		dd,r5,base0:r4:5			; reading object upper limit
+		out		p16,r5
+		clc
+		add		r5:r0						; new upper limit
+		st		dd,base0:r4:5,r5
+		clc
+		add		r0:r3						; new offset of segment
+; setting upper link selector in the previous descriptor
+		ssl		r2
+		in		r5,p3
+		st		dd,base0:r2:3,r5
+		xor		r5:r5
+		jmp		zf,Offset MAR_AC5
+;
+; If found free memory block for last segment or whole object
+;
+MAR_LastSegment:
+		in		r3,p2						; reading length of object
+		in		r4,p3						; reading selector
+; checking first segment
+		or		r7:r7
+		jmp		zf,Offset MAR_LS0
+; setting upper link selector in the previous descriptor
+		mov		r5,r2
+		ssl		r5
+		st		dd,base0:r5:3,r4
+		stc
+		jmp		cf,Offset MAR_LS00
+MAR_LS0:
+		mov		r7,r4
+; clear position in FreeRam
+MAR_LS00:
+		ssl		r4
+		xor		r5:r5
+		out		p16,r5
+		out		p17,r5
+		li		r5:FreeMemWriteCommand,b0
+		out		p13,r5		
+; checking size of object and required size
+		clc
+		sub		r3:r1
+; try to get selector from cache
+		xor		r5:r5
+		li		r5:FreeMemSearchFreeCommand,b0
+		out		p13,r5
+		xor		r5:r5
+MAR_LS1:
+		jmp		ef,Offset MAR_LS1
+; checking if free position in DT found
+		li		r5:EmptyDTFoundFlagIndex,b1		
+		out		p13,r5
+		nop
+		jmp		ef,Offset MAR_LS2
+; if no free entry found allocate all free block to the object
+MAR_NoRemainder:
+; setting type of object
+		xor		r6:r6
+		li		r6:1,b0
+		out		p13,r6						; select CCR
+		ld		dd,r5,base0:r4:1
+		li		r5:0,b1
+		li		r5:0,b2
+		li		r5:0,b3
+		in		r6,p1						; reading CCR
+		ssl		r6
+		lsl		r6
+		dsl		r6
+		andi	r6:0Ch,b3
+		or		r5:r6
+		xor		r6:r6
+		li		r6:6,b0
+		out		p13,r6
+		ori		r5:32h,b3
+		in		r6,p0						; reading flags
+		li		r6:0,b0
+		li		r6:0,b1
+		li		r6:0,b2
+		andi	r6:0F0h,b3
+		xor		r5:r6
+		st		dd,base0:r4:1,r5			; second word of base
+; setting lower link selector
+		st		dd,base0:r4:2,r2
+; setting lower limit
+		st		dd,base0:r4:4,r0
+; setting upper limit
+		ld		dd,r5,base0:r4:5
+		out		p16,r5
+		clc
+		add		r5:r0
+		st		dd,base0:r4:5,r5
+; setting upper link selector
+		xor		r5:r5
+		st		dd,base0:r4:3,r5
+; decrement free mem counter
+		li		r5:30h,b1
+		out		p13,r5
+; setting owner
+		xor		r5:r5
+		li		r5:2,b0
+		out		p13,r5
+		nop
+		in		r5,p1						; reading current PSO selector
+		li		r5:0,b3
+		st		dd,base0:r4:6,r5			; owner
+; setting selector to EU
+		out		p14,r7
+		xor		r7:r7
+		out		p15,r7
+		li		r7:2,b2
+		out		p13,r7
+		stc
+		jmp		cf,Offset MemAllocOK
+;-----------------------------------------------
+; If free entry in DT found, then setting the data object in free DT entry and rest of free object in old free entry
+;-----------------------------------------------
+MAR_LS2:
+		in		r5,p3						; reading selector for free position
+		ssl		r5
+		ld		dd,r6,base0:r4:0			; reading base of free object
+		st		dd,base0:r5:0,r6			; storing base
+		ld		dd,r6,base0:r4:1
+		st		dd,base0:r5:1,r6			; high byte of base address
+		ld		dd,r6,base0:r4:5
+		st		dd,base0:r5:5,r6			; upper limit
+; allocate object
+; setting type of object
+		xor		r6:r6
+		li		r6:1,b0
+		out		p13,r6						; select CCR
+		ld		dd,r5,base0:r4:1
+		li		r5:0,b1
+		li		r5:0,b2
+		li		r5:0,b3
+		in		r6,p1						; reading CCR
+		ssl		r6
+		lsl		r6
+		dsl		r6
+		andi	r6:0Ch,b3
+		or		r5:r6
+		xor		r6:r6
+		li		r6:6,b0
+		out		p13,r6
+		ori		r5:32h,b3
+		in		r6,p0						; reading flags
+		li		r6:0,b0
+		li		r6:0,b1
+		li		r6:0,b2
+		andi	r6:0F0h,b3
+		xor		r5:r6
+		st		dd,base0:r4:1,r5			; second word of base
+; setting lower link selector
+		st		dd,base0:r4:2,r2
+; setting lower limit
+		st		dd,base0:r4:4,r0
+; setting upper limit
+		clc
+		add		r0:r1
+		st		dd,base0:r4:5,r0
+; decrement free mem counter
+		mov		r0,r1
+		clc
+		subi	r0:1,b0
+		out		p16,r0
+		xor		r0:r0
+		li		r0:30h,b1
+		out		p13,r0			
+; setting upper link selector to zero
+		xor		r5:r5
+		st		dd,base0:r4:3,r5
+; setting owner
+		li		r5:2,b0
+		out		p13,r5
+		nop
+		in		r5,p1					; reading current PSO selector
+		li		r5:0,b3
+		st		dd,base0:r4:6,r5		; owner
+; setting selector to EU
+		out		p14,r7
+		xor		r7:r7
+		out		p15,r7
+		li		r7:2,b2
+		out		p13,r7
+;-----------------------------------------------
+; update rest of free object
+;-----------------------------------------------
+		in		r4,p3					; reading free selector
+; clearing free position
+		xor		r7:r7
+		out		p16,r7
+		out		p17,r7
+		li		r7:FreeMemWriteCommand,b0
+		out		p13,r7
+		out		p17,r4
+		ssl		r4
+; update base address
+		ld		dd,r5,base0:r4:0
+		xor		r6:r6
+		add		r5:r1
+		csl		r6
+		st		dd,base0:r4:0,r5
+		ld		dd,r5,base0:r4:1
+		clc
+		add		r5:r6
+		li		r5:0,b1
+		li		r5:0,b2
+		li		r5:1,b3
+		st		dd,base0:r4:1,r5
+; update upper limit
+		ld		dd,r5,base0:r4:5
+		clc
+		sub		r5:r1
+		st		dd,base0:r4:5,r5
+		out		p16,r5
+; setting to 0 other fields of descriptor
+		xor		r5:r5
+		st		dd,base0:r4:2,r5
+		st		dd,base0:r4:3,r5
+		st		dd,base0:r4:4,r5
+		st		dd,base0:r4:6,r5
+		st		dd,base0:r4:7,r5
+; searching free position
+		li		r5:FreeMemGetFreeLengthEntryCommand,b0
+		out		p13,r5
+		xor		r5:r5
+MAR_LS3:
+		jmp		ef,Offset MAR_LS3
+		xor		r5:r5
+		li		r5:FreeFoundFlagIndex,b1
+		out		p13,r5
+		nop
+		jmp		ef,Offset MAR_LS4
+; request to recalculate free cached space
+MemAllocOK:
+		xor		r5:r5
+		li		r5:FreeMemCalcFreeCommand,b0
+		out		p13,r5
+		stc
+		jmp 	cf,Offset WaitState
+; if free position found
+MAR_LS4:
+		xor		r5:r5
+		li		r5:FreeMemWriteCommand,b0
+		out		p13,r5
+		stc
+		jmp		cf,Offset MemAllocOK
+

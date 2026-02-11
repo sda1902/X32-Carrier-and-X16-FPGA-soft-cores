@@ -1,0 +1,152 @@
+; check current PSO
+	xor		r7:r7
+	li		r7:2,b0
+	out		p13,r7
+	nop
+	in		r0,p1								; PSO selector
+	in		r3,p0								; DTLIMIT into R3
+	li		r3:0,b3
+	or		r0:r0
+	jmp		zf,offset HardwareReset				; if current PSO is zero
+	cmp		r3:r0
+	jmp		alb,offset HardwareReset
+	jmp		aeb,offset HardwareReset
+	call	offset SetObjectBase
+; checking context stack pointer
+	xor		r7:r7
+	li		r7:ContextStackOffset_PSO_position,b0
+	ld		dd,r4,br0:r7:0						; context stack base
+	li		r7:ContextStackPointer_PSO_position,b0
+	ld		dd,r0,br0:r7:0						; read the current context stack pointer
+	xor		r1:r1
+	li		r1:60h,b0
+	li		r1:02h,b1
+	cmp		r0:r1
+	jmp		alb,offset EndMsgError_4A
+; if context stack not empty read return PSO selector and reset the context stack pointer
+	clc
+	subi	r0:8,b0								; pointer to the return context pointer
+	clc
+	add		r0:r4
+	ld		dd,r1,br0:r0:0
+	ld		dd,r0,br0:r0:1						; return PSO selector
+	st		dd,br0:r7:0,r1						; store previous value of context stack pointer
+; check return PSO
+	or		r0:r0
+	jmp		zf,offset EndMsgError_4B
+	cmp		r0:r3
+	jmp		agb,offset EndMsgError_4B
+	jmp		aeb,offset EndMsgError_4B
+; if return PSO selector is OK
+	out		p19,r0
+	call	offset SetObjectBase
+	ld		dd,r1,br0:r7:0						; stack pointer
+	li		r7:ContextStackOffset_PSO_position,b0
+	ld		dd,r0,br0:r7:0						; stack base
+	clc
+	add		r0:r1								; pointer to top of the stack
+	xor		r6:r6
+	li		r6:1,b0
+	out		p13,r6
+	ld		dd,r1,br0:r0:2						; reading CSR image
+	in		r6,p1								; reading previous CSR
+	out		p20,r1
+; checking previous mode in R6
+	mov		r5,r1
+	li		r5:0,b0
+	li		r5:0,b1
+	li		r5:0,b2
+	andi	r5:7,b3
+	li		r6:0,b0
+	li		r6:0,b1
+	li		r6:0,b2
+	andi	r6:7,b3
+	xori	r6:3,b3
+	jmp		nzf,offset EndmsgCheckSystemQueue
+; if previous mode was interrupt we check current mode
+	or		r5:r5
+	jmp		zf,offset EndmsgCheckSystemQueue
+	xori	r5:5,b3
+	jmp		zf,offset EndmsgCheckSystemQueue
+; if return from interrupt to another interrupt or system message processing
+EndmsgContextLoad:
+	clc
+	addi	r0:8,b0
+	call	offset LoadContext
+	nop
+	int	
+; checking queues state
+EndmsgCheckSystemQueue:
+	xori	r1:80h,b2
+	bt		r1:23
+	jmp		cf,offset EndmsgContextLoad
+; if system queue can be checked
+	li		r7:SystemQueuePointers_PSO_position,b0
+	xor		r2:r2
+	xor		r3:r3
+	ld		dd,r2,br0:r7:0					; read system queue pointers
+	mov		r3,r2
+	li		r2:0,b2
+	li		r2:0,b3
+	osr		r3
+	osr		r3
+	cmp		r2:r3
+	jmp		aeb,offset Endmsg1
+; if system queue not empty
+EndmsgPrepareMessage:
+	xor		r0:r0
+	out		br1h,r0
+	mov		r0,r7
+	clc
+	addi	r0:2,b0
+	out		br1l,r0
+	stc
+	jmp		cf,offset SwitchToMessage
+; if system queue empty check current mode
+Endmsg1:
+	li		r1:0,b0
+	li		r1:0,b1
+	li		r1:0,b2
+	andi	r1:6,b3
+	jmp		nzf,offset EndmsgContextLoad
+; if core in main mode or sleep mode then check regular queue
+	li		r7:RegularQueuePointers_PSO_position,b0
+	xor		r2:r2
+	xor		r3:r3
+	ld		dd,r2,br0:r7:0
+	mov		r3,r2
+	li		r2:0,b2
+	li		r2:0,b3
+	osr		r3
+	osr		r3
+	cmp		r2:r3
+	jmp		aeb,offset EndmsgContextLoad
+	stc
+	jmp		cf,offset EndmsgPrepareMessage
+	
+;
+; Error processing during ENDMSG execution
+;
+EndMsgError_4A:
+	li		r0:4Ah,b3
+	stc
+	jmp		cf,offset EndMsgError
+EndMsgError_4B:
+	li		r0:4Bh,b3
+	stc
+	jmp		cf,offset EndMsgError
+;
+; common error processing
+;
+EndMsgError:
+	xor		r1:r1
+	li		r1:2,b0
+	out		p13,r1
+	li		r0:0,b0
+	li		r0:0,b1
+	li		r0:0,b2
+	in		r1,p1
+	or		r0:r1
+	out		p21,r0
+	nop
+	int

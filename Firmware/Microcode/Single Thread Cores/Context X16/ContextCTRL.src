@@ -1,0 +1,633 @@
+define	StopCoreCommand=1,b2
+define	ResetSystemCommand=80h,b1
+
+include d:\Work\CPU\Microcode\instruction.src 
+include	d:\work\cpu\soft\definitions.src
+include FreeMemDef.src
+
+Object Context (iset=microcode, granularity=3)
+Restart:
+	nop
+; resetting total memory space
+	xor		r0:r0
+	li		r0:10h,b1
+	out		p13,r0
+	xor		r0:r0
+	li		r0:FreeMemClearCommand,b0
+	out		p13,r0
+	xor		r2:r2				
+	li		r2:32,b0			; offset of first position in DT
+A00:
+	jmp		ef,Offset A00
+;
+; First scanning DT for free objects and free table entries AFTER reset
+;
+	li		r0:2,b0
+	out		p13,r0
+	xor		r1:r1				; descriptor counter
+	li		r1:1,b0
+	in		r0,p0				; read DTLIMIT
+	li		r0:0,b3
+	cmp  	r1:r0
+	jmp		agb,offset HardwareReset
+	jmp		aeb,offset HardwareReset
+; if DT have a legal value
+	xor		r4:r4
+	mov		r5,r4
+	mov		r6,r4
+	li		r4:3,b3				; r4 - mask to extract object type
+	li		r5:1,b3				; mask to detect free object type
+	li		r6:10h,b0
+	li		r6:20h,b1
+A01:
+	ld		dd,r3,base0:r2:1	; reading control byte
+	and		r3:r4
+	jmp		nzf,Offset A04
+; if free entry in DT found trying to setup it into cache
+	li		r3:FreeMemGetFreeEntryCommand,b0
+	out		p13,r3
+	xor		r3:r3
+A05:
+	jmp		ef,Offset A05
+; setting selector into cache
+	out		p17,r1
+	li		r3:FreeMemWriteCommand,b0
+	out		p13,r3
+; checking free object state
+A04:
+	xor		r3:r5
+	jmp 	nzf,Offset A03
+; checking table overflow
+	li		r3:10h,b0
+	and		r3:r6
+	jmp 	zf,Offset FreeFound
+; if free object found turn on search free position in the cache
+	li		r3:FreeMemGetFreeLengthEntryCommand,b0
+	out		p13,r3				; start search free position
+	xor		r3:r3
+A02:
+	jmp		ef,Offset A02
+; checking free found flag
+	li		r3:FreeFoundFlagIndex,b1
+	out		p13,r3
+	stc
+	jmp		ef,Offset FreeFound
+; if no position found increment memory counter only
+	li		r6:0,b0
+; if free position in the RAM found
+FreeFound:
+; reading length of object
+	ld		dd,r3,base0:r2:5
+	out		p16,r3				; length
+	out		p17,r1				; selector
+	out		p13,r6				; write request and increment free memory counter
+	
+A03:
+	clc
+	addi	r1:1,b0
+	addi	r2:32,b0
+	cmp		r0:r1
+	jmp		agb,Offset A01
+; sending request for calculation total free space described by cached objects
+	xor		r3:r3
+	li		r3:FreeMemCalcFreeCommand,b0
+	out		p13,r3
+	xor		r3:r3
+A06:
+	jmp		ef,offset A06
+; setting ready signal
+	li		r3:READY_Signal
+	out		p13,r3
+WaitState:
+	nop
+	int
+;
+;=================================================================================================
+;		Memory allocation processing
+;=================================================================================================
+;
+MemAllocRequest:
+include memalloc.src
+
+;
+;=================================================================================================
+; 		Get parameter processing
+;=================================================================================================
+;
+GetParamRequest:
+include Parameter.src
+
+;
+;=================================================================================================
+;		Processing ENDMSG
+;=================================================================================================
+;
+EndMsgRequest:
+include EndMsg.src
+
+;
+;=================================================================================================
+;		Processing interrupt from Messenger system
+;=================================================================================================
+;
+MessengerRequest:
+include messenger.src
+
+;
+;=================================================================================================
+;		Processing process timer
+;=================================================================================================
+;
+TimerRequest:
+include Proctimer.src
+
+;
+; Setting base address of the object in the BR0
+;
+SetObjectBase:
+	ssl 	r0							; calculate offset from selector
+	ld		dd,r2,base0:r0:0
+	out		br0l,r2
+	ld		db,r2,base0:r0:1
+	out		br0h,r2
+	ret
+;
+;	Context store procedure
+;
+StoreCurrentContext:
+	xor		r0:r0
+	li		r0:2,b0
+	out		p13,r0
+;	checking current PSO
+	nop
+	in		r0,p1
+	or		r0:r0
+	jmp		zf,offset HardwareReset		; if try to store context into empty PSO
+; checking selector limit
+	in		r2,p0						; reading DT Limit
+	li		r2:0,b3
+	cmp		r2:r0
+	jmp		agb,offset SCC1
+	stc
+	jmp		cf,offset HardwareReset		; if PSO selector greater then DT limit
+; reading context position
+SCC1:
+	call	offset SetObjectBase
+	xor		r0:r0
+	li		r0:ContextStackOffset_PSO_position,b0
+	ld		dd,r1,br0:r0:0
+	li		r0:ContextStackPointer_PSO_position,b0
+	ld		dd,r2,br0:r0:0				; reading stack pointer
+	clc
+	add		r1:r2
+	addi	r1:8,b0						; pointer to CSR position in the context
+; store CSR into PSO
+	li		r0:1,b0
+	out		p13,r0
+	clc
+	in		r2,p1						; reading CSR
+	mov		r5,r2						; copy CSR
+	st		dd,br0:r1:0,r2				; storing CSR into PSO
+	addi	r1:8,b0
+; store current instruction pointer 
+	li		r0:3,b0
+	out		p13,r0
+	nop
+	in		r2,p0						; reading RIP
+	st		dd,br0:r1:0,r2
+	addi	r1:8,b0						; position of stack pointers
+	mov		r2,r1
+	addi	r2:64,b0					; position to store register context
+; setting controller to store context
+	in		r3,br0l
+	in		r4,br0h
+	lsl		r3
+	csl		r4
+	lsl		r3
+	csl		r4
+	lsl		r3
+	csl		r4
+	lsl		r3
+	csl		r4
+	lsl		r3
+	csl		r4
+	clc
+	add		r3:r2
+	addi	r4:0,b0
+	out		p0,r3
+	out		p1,r4
+	xor		r0:r0
+	li		r0:4,b1
+	out		p13,r0
+; calculate position of stack pointer
+	dsr		r5
+	dsr		r5
+	dsr		r5
+	dsr		r5
+	dsr		r5
+	dsr		r5
+	dsr		r5
+	andi	r5:30h,b0
+	li		r5:0,b1
+	li		r5:0,b2
+	li		r5:0,b3
+	clc
+	add		r1:r5
+	addi	r2:0F0h,b0
+	addi	r2:01h,b1				; pointer to current stack pointer
+SCC2:
+	jmp		ef,offset SCC2
+; setting stack pointer
+	ld		dd,r4,br0:r2:0
+	ld		dd,r5,br0:r2:1
+	ld		dd,r6,br0:r2:2
+	ld		dd,r7,br0:r2:3
+	st		dd,br0:r1:0,r4
+	st		dd,br0:r1:1,r5
+	st		dd,br0:r1:2,r6
+	st		dd,br0:r1:3,r7
+; end of context store
+	xor		r0:r0
+	li		r0:16,b0
+	clc
+	add		r0:r2					; pointer to the next position in context stack 
+	ret
+
+;
+;	Create new context frame 
+; R0 - pointer to the top of context stack
+; R6 - message parameter
+; R7 - return PSO
+; BR0 - base address of PSO
+;
+CreateContextFrame:
+	xor		r1:r1
+	li		r1:ContextStackLimit_PSO_position,b0
+	ld		dd,r2,br0:r1:0							; reading context stack limit
+	li		r1:ContextStackPointer_PSO_position,b0
+	ld		dd,r3,br0:r1:0							; reading context stack pointer
+	mov		r5,r3									; copy current stack pointer
+	clc
+	addi	r3:60h,b0
+	addi	r3:02h,b1								; формирование нового указателя
+	mov		r4,r3
+	clc
+	addi	r4:5Fh,b0
+	addi	r4:02h,b1
+	cmp		r4:r2
+	jmp		alb,offset CCF1
+; if context stack full
+	li		r7:42h,b3
+	out		p21,r7
+; checking messenger request clear flag
+	in		r0,br1h
+	or		r0:r0
+	jmp		zf,offset WaitState
+; if we need to clear messenger request
+	xor		r0:r0
+	li		r0:40h,b1
+	out		p13,r0
+	nop
+	int
+; if pointer is OK 
+CCF1:
+	st		dd,br0:r1:0,r3						; store new value of context stack pointer
+;
+	st		dd,br0:r0:0,r5						; store return stack pointer
+	st		dd,br0:r0:1,r7						; store return PSO selector
+	xor		r5:r5
+	li		r5:50h,b0
+	li		r5:02h,b1
+	st		dd,br0:r0:2,r5						; length of context
+; setting message parameter
+	st		dd,br0:r0:3,r6						; message parameter
+; prepare pointers to copy soft stack pointers from previous context frame to current
+	mov		r1,r0
+	clc
+	sub		r1:r5
+	clc
+	addi	r1:16,b0
+	xor		r2:r2
+	li		r2:16,b0
+	clc
+	addi	r0:32,b0
+CCF2:
+	ld		dd,r3,br0:r1:0
+	st		dd,br0:r0:0,r3
+	clc
+	addi	r1:4,b0
+	clc
+	addi	r0:4,b0
+	clc
+	subi	r2:1,b0
+	jmp		nzf,offset CCF2
+	clc
+	subi	r0:80,b0						; pointer to a new CSR position
+	ret
+
+;
+; 		Prepare context for load to core
+; BR0:R0 - pointer to context image (CSR value)
+; R1 - code offset
+; R2 - code selector and control byte
+; R3 - CSR value If CSR=0 - system error processing
+;
+PrepareContext:
+	st		dd,br0:r0:2,r1					; setting IP image and release R1 register
+	mov		r1,r2
+	li		r1:0,b3
+	mov		r4,r0
+	clc
+	addi	r4:38h,b0
+	addi	r4:02h,b1						; R4 - pointer to code selector image
+	st		dd,br0:r4:0,r1					; setting code selector image
+; create new CSR value
+	xor		r7:r7							; initial value of ILOCK[0]
+	li		r7:0E0h,b2
+	li		r7:0FFh,b3
+	or		r3:r3
+	jmp		zf,offset PC_from_Code
+	li		r7:0F0h,b2						; setting ILOCK[0]=1
+	mov		r5,r3
+	bt		r2:31
+	jmp		cf,offset PC1
+; setting parameters from code object
+PC_from_Code:
+	ssl		r1
+	ld		dd,r1,base0:r1:1				; read taskID and control byte from code descriptor
+	mov		r5,r1
+	dsr		r5
+	dsr		r5
+	dsr		r5
+	dsr		r5
+PC1:
+	andi	r5:0Ch,b2
+	li		r5:0,b3
+	or		r7:r5
+; seting interrupt lock bits [3:1]
+	ori		r3:0Fh,b2
+	andi	r3:07h,b3
+	li		r3:0FFh,b1
+	li		r3:0FFh,b0
+	mov		r6,r2
+	dsr		r2
+	dsr		r2
+	dsr		r2
+	lsr		r2
+	ori		r2:1Fh,b2
+	li		r2:0FFh,b3
+	li		r2:0FFh,b1
+	li		r2:0FFh,b0
+	and		r7:r3
+	and		r7:r2
+; setting processor state
+	li		r6:0,b0
+	li		r6:0,b1
+	li		r6:0,b2
+	andi	r6:0Ch,b3
+	mov		r5,r6
+	xori	r6:04h,b3
+	jmp		zf,offset PC2
+; if processor state must be changed
+	bt		r7:20
+	jmp		cf,offset PC3
+; if exception processing
+	li		r7:2,b3
+	stc
+	jmp		cf,offset PC2
+; if interrupt or message processing
+PC3:
+	bt		r5:27
+	jmp		cf,offset PC4
+; if interrupt processing
+	li		r7:3,b3
+	stc
+	jmp		cf,offset PC2
+; if processing system or regular message
+PC4:
+	dsr		r5
+	addi	r5:2,b3
+	li		r7:0,b3
+	or		r7:r5
+PC2:
+	st		dd,br0:r0:0,r7
+	ret
+
+;
+;		Procedure load context into core
+;	BR0:R0 - pointer to the context image
+;
+LoadContext:
+	ld		dd,r1,br0:r0:0
+	out		p20,r1						; setting new value into CSR
+; calculate position of the stack pointer image
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	andi	r1:30h,b0
+	li		r1:0,b1
+	li		r1:0,b2
+	li		r1:0,b3
+	mov		r2,r1
+	clc
+	addi	r2:16,b0
+	add		r2:r0					; R2 - pointer to the stack position
+;
+	mov		r1,r0
+	clc
+	addi	r1:80,b0
+	in		r3,br0l
+	in		r4,br0h
+	lsl		r3
+	csl		r4
+	lsl		r3
+	csl		r4
+	lsl		r3
+	csl		r4
+	lsl		r3
+	csl		r4
+	lsl		r3
+	csl		r4
+	clc
+	add		r3:r1
+	addi	r4:0,b0
+	ori		r4:20h,b1
+	out		p0,r3
+	out		p1,r4
+	xor		r1:r1
+	li		r1:4,b1
+	out		p13,r1
+	li		r1:0BEh,b3						; AR14 register index
+LC1:
+	jmp		ef,offset LC1
+; if context loaded then setting soft stack pointer
+	li		r1:7,b1
+	out		p13,r1
+	ld		dd,r3,br0:r2:0
+	out		p14,r3
+	ld		dd,r3,br0:r2:1
+	out		p15,r3
+	nop
+LCW1:
+	jmp		ef,offset LCW1
+	li		r1:0BFh,b3
+	out		p13,r1
+	ld		dd,r3,br0:r2:2
+	out		p14,r3
+	xor		r3:r3
+	out		p15,r3
+	nop
+LCW2:
+	jmp		ef,Offset LCW2
+; start execution by write value into IP
+	li		r1:0E9h,b3
+	out		p13,r1
+	ld		dd,r1,br0:r0:2
+	out		p14,r1
+	ld		dd,r1,br0:r0:3
+	out		p15,r1
+	xor		r1:r1
+	out		p13,r1
+	ret
+
+;
+;==================================================================================================
+;		Procedure load context into core short form (only stack and instruction pointers)
+;	BR0:R0 - pointer to the context image
+;
+LoadContextShort:
+	xor		r7:r7
+	li		r7:2,b0
+	out		p23,r7
+	li		r7:7,b0
+	out		p13,r7
+	ld		dd,r1,br0:r0:0
+	out		p20,r1						; setting new value into CSR
+; calculate position of the stack pointer image
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	dsr		r1
+	andi	r1:30h,b0
+	li		r1:0,b1
+	li		r1:0,b2
+	li		r1:0,b3
+	mov		r2,r1
+	clc
+	addi	r2:16,b0
+	add		r2:r0					; R2 - pointer to the stack position
+;
+	xor		r1:r1
+	li		r1:0BEh,b3						; AR14 register index
+	li		r1:7,b1
+	out		p13,r1
+	ld		dd,r3,br0:r2:0
+	out		p14,r3
+	ld		dd,r3,br0:r2:1
+	out		p15,r3
+	nop
+LCSW1:
+	jmp		ef,offset LCSW1
+	li		r1:0BFh,b3						; AR15 register index for X16 thread
+	out		p13,r1
+	ld		dd,r3,br0:r2:2
+	out		p14,r3
+	xor		r3:r3
+	out		p15,r3
+	nop
+LCSW2:
+	jmp		ef,Offset LCSW2
+; set the AR13 register
+	xor		r2:r2
+	li		r1:0BDh,b3
+	li		r2:038h,b0
+	li		r2:02h,b1
+	clc
+	add		r2:r0
+	out		p13,r1
+	ld		dd,r3,br0:r2:0
+	out		p14,r3
+	xor		r3:r3
+	out		p15,r3
+	nop
+LCSW3:
+	jmp		ef,Offset LCSW3
+; start execution by write value into IP
+	li		r1:0,b2
+	li		r1:0E9h,b3
+	out		p13,r1
+	ld		dd,r1,br0:r0:2
+	out		p14,r1
+	ld		dd,r1,br0:r0:3
+	out		p15,r1
+	xor		r1:r1
+	out		p13,r1
+	ret
+
+;
+;	Stop core execution procedure
+;
+StopCore:
+	xor		r0:r0
+	li		r0:StopCoreCommand
+	li		r0:5,b1
+	out		p13,r0
+	nop
+Stc1:
+	jmp		ef,offset Stc1
+	ret
+
+;
+; Hardware reset if fatal error occurs
+;
+HardwareReset:
+	xor		r0:r0
+	li		r0:ResetSystemCommand
+	out		p13,r0
+hr1:
+	stc
+	jmp		cf,offset hr1
+	
+;
+;=================================================================================================
+; 		Interrupts entry points
+;=================================================================================================
+;
+
+org 17D0h 
+; clear memory allocation system
+	stc
+	jmp CF,Offset Restart
+	
+; memory allocation request
+	stc
+	jmp CF,Offset MemAllocRequest
+
+; get message parameter request
+	stc
+	jmp CF,Offset GetParamRequest
+
+; request from messenger
+	stc
+	jmp CF,Offset EndMsgRequest
+
+; EU end message request
+	stc
+	jmp CF,Offset MessengerRequest
+
+; Task switch request
+	stc
+	jmp	cf,offset MsgrQueueCheck
+
+; message queue check request
+	stc
+	jmp cf,offset TimerRequest
+
+Endof Context

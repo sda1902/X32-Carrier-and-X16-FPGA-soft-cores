@@ -1,0 +1,11 @@
+define FreeMemWriteCommand=10h
+define FreeMemClearCommand=20h
+define FreeMemGetFreeLengthEntryCommand=30h
+define FreeMemCalcFreeCommand=40h
+define FreeMemSearchCommand=50h
+define FreeMemGetFreeEntryCommand=60h
+define FreeMemSearchFreeCommand=70h
+define FreeFoundFlagIndex=1
+define FreeObjectFoundFlagIndex=2
+define EmptyDTFoundFlagIndex=3
+define READY_signal=08h,b1

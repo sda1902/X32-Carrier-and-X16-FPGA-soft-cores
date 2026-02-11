@@ -1,0 +1,213 @@
+; setting flag for message interface reset
+	li		r0:1,b0
+	out		br1h,r0
+; checking request type (procedure or interrupt)
+	xor		r0:r0
+	out		p13,r0					; select the message port
+	li		r0:0Ch,b3
+	in		r1,p1					; procedure selector and control byte
+	and		r1:r0
+	jmp		zf,offset TransferToInterrupt
+	li		r0:04h,b3
+	xor		r1:r0
+	jmp		nzf,offset MsgRst
+;
+; if prcedure call detected
+;
+	call	offset StopCore
+	call	offset StoreCurrentContext
+	xor		r1:r1
+	li		r1:1,b0
+	out		p13,r1
+	li		r1:2,b0
+	in		r6,p0					; reading message parameter
+	out		p13,r1
+	nop
+	in		r7,p1					; current PSO as a return PSO
+	call	offset CreateContextFrame
+; creating new CSR value for procedure copy TASK ID and CPL and modify ILOCK bits
+	xor		r4:r4
+	out		p13,r4
+	li		r4:1,b0
+	in		r1,p0
+	in		r2,p1					; read control byte and code selector
+	out		p13,r4
+	nop
+	in		r3,p1					; read current CSR
+	stc
+	jmp		cf,offset PrepareAndLoadContext
+	
+; restart interrupt
+RestartInterrupt:
+	xor		r0:r0
+	li		r0:20h,b2
+	out		p13,r0
+	nop
+	int
+;
+; if hardware interrupt detected
+;
+TransferToInterrupt:
+	xor		r0:r0
+	li		r0:StopCoreCommand
+	li		r0:1,b0
+	out		p13,r0
+	xor		r0:r0
+	in		r2,p0					; reading override flag
+	lsl		r2
+	jmp		cf,offset NoTTIWait
+TTIWait:
+	li		r0:6,b1
+	out		p13,r0
+	li		r0:5,b1
+	jmp		ef,offset RestartInterrupt
+	out		p13,r0
+	nop
+	jmp		ef,offset TTIWait
+NoTTIWait:
+	call	offset StoreCurrentContext
+	xor		r1:r1
+	li		r1:1,b0
+	out		p13,r1
+	li		r1:2,b0
+	in		r0,p0					; selector PSO which owned interrupt handler
+	li		r0:0,b3
+	out		p13,r1
+	mov		r4,r0
+	call	offset SetObjectBase
+	xor		r0:r0
+	li		r0:ContextStackOffset_PSO_position,b0
+	ld		dd,r7,br0:r0:0			; reading context stack base
+	li		r0:ContextStackPointer_PSO_position,b0
+	ld		dd,r0,br0:r0:0			; reading stack pointer
+	clc
+	add		r0:r7
+	ld		dd,r7,br0:r0:2			; reading CSR value
+	out		p20,r7					; setting CSR
+	clc
+	addi	r0:58h,b0
+	addi	r0:02h,b1				; R0 - top of the context stack
+	in		r7,p1					; current PSO as return PSO
+	out		p19,r4					; setting CPSR register
+	mov		r6,r7					; message parameter
+	call 	offset CreateContextFrame
+; creating new CSR value, program pointer and stack pointer
+	xor		r7:r7
+	out		p13,r7
+	li		r7:1,b0
+	in		r1,p0					; reading offset
+	in		r2,p1					; reading selector and control byte
+	out		p13,r7
+	nop
+	in		r3,p1					; reading current CSR
+; R0 - pointer to context image (CSR value)
+; R1 - code offset
+; R2 - code selector and control byte
+; R3 - CSR value
+PrepareAndLoadContext:
+	call	offset PrepareContext
+	call	offset LoadContextShort
+; checking messenger reset
+	in		r0,br1h
+	or		r0:r0
+	jmp		zf,offset WaitState
+; if we need to reset request in the messenger
+MsgRst:
+	xor		r0:r0
+	li		r0:40h,b1
+	out		p13,r0
+	nop
+	int
+
+;
+; if parameters not specified then try to check the message queues
+;
+MsgrQueueCheck:
+	xor		r0:r0
+	out		br1h,r0
+	li		r0:2,b0
+	out		p13,r0
+	nop
+	in		r0,p1				; reading current PSO selector
+	or		r0:r0
+	jmp		zf,offset WaitState
+	in		r1,p0				; reading DTLIMIT
+	li		r1:0,b3
+	cmp		r0:r1
+	jmp		agb,offset WaitState
+	jmp		aeb,offset WaitState
+; if selector PSO has a legal value
+	call	offset SetObjectBase
+	xor		r0:r0
+	xor		r1:r1
+	xor		r2:r2
+	li		r0:SystemQueuePointers_PSO_position,b0
+	ld		dw,r1,br0:r0:0
+	clc
+	addi	r0:2,b0
+	ld		dw,r2,br0:r0:0
+	cmp		r1:r2
+	jmp		aeb,offset MQC1
+; if system queue not empty
+	stc
+	jmp		cf,offset MQC2
+; check regular queue
+MQC1:
+	li		r0:RegularQueuePointers_PSO_position,b0
+	ld		dw,r1,br0:r0:0
+	clc
+	addi	r0:2,b0
+	ld		dw,r2,br0:r0:0
+	cmp		r1:r2
+	jmp		aeb,offset WaitState
+; if regular or system queue not empty
+MQC2:
+	out		br1l,r0
+	call	offset StopCore
+	call	offset StoreCurrentContext
+SwitchToMessage:
+	in		r0,br1l
+	clc
+	subi	r0:10,b0						; pointer to queue offset position
+	ld		dd,r4,br0:r0:0					; read queue offset
+	xor		r5:r5
+	xor		r6:r6
+	ld		dw,r5,br0:r0:1					; limit of queue
+	ld		dw,r6,br0:r0:2					; read pointer
+	mov		r7,r6
+	dsl		r7
+	dsl		r7
+	clc
+	add		r7:r4							; pointer to message
+	out		br1l,r7
+; setting new value of read pointer into PSO
+	clc
+	addi	r6:1,b0
+	cmp		r6:r5
+	jmp		alb,offset MQC3
+; if we need to reset the read pointer
+	xor		r6:r6
+MQC3:
+	st		dw,br0:r0:2,r6					; write new value of read pointer
+; setting pointer to current context
+	xor		r4:r4
+	li		r4:ContextStackOffset_PSO_position,b0
+	ld		dd,r0,br0:r4:0					; reading context stack offset
+	ld		dd,r1,br0:r4:2					; reading context stack pointer
+	clc
+	addi	r0:58h,b0
+	addi	r0:02h,b1
+	add		r0:r1
+	ld		dd,r6,br0:r7:2					; message parameter
+	xor		r7:r7
+	li		r7:2,b0
+	out		p13,r7
+	nop
+	in		r7,p1							; reading current CSR as return PSO
+	call	offset CreateContextFrame
+	in		r7,br1l
+	ld		dd,r1,br0:r7:0					; reading procedure offset
+	ld		dd,r2,br0:r7:1					; reading control byte and code selector
+	ld		dd,r3,br0:r7:3					; CSR value
+	stc
+	jmp		cf,offset PrepareAndLoadContext
